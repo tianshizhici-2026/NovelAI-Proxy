@@ -1,0 +1,36 @@
+{
+  "name": "novelai-image-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "engines": { "node": ">=24.5.0" },
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "preview:test": "node --import tsx scripts/preview-server.ts",
+    "dev": "concurrently -k -n api,web \"PORT=3001 HOST=127.0.0.1 node --watch --import tsx server/index.ts\" \"vite\"",
+    "build": "tsc --noEmit && vite build",
+    "start": "node --use-env-proxy --import tsx server/index.ts",
+    "test": "tsx --test server/*.test.ts src/*.test.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "fflate": "^0.8.2",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "sharp": "^0.35.5",
+    "tsx": "^4.20.6",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12"
+  }
+}
