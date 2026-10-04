@@ -7,7 +7,7 @@ import Characters from './Characters';
 import MaskCanvas, { type MaskHandle } from './MaskCanvas';
 import PromptSheet from './PromptSheet';
 import ImageViewport from './ImageViewport';
-import { importImageMetadata } from './metadata';
+import { importImageMetadata, pngMetadata } from './metadata';
 import { newId } from './id';
 import { clearHistory, deleteHistory, downloadBlob, fitImage, imageToDataUrl, loadHistory, saveHistory } from './storage';
 import type { AccountView } from '../shared/accounts';
@@ -25,6 +25,7 @@ function initialSettings(draftKey: string): Settings {
         qualityTags: saved.qualityTags !== false, useCoords: saved.positionDefaultsVersion === 1 && saved.useCoords === true,
         strength: Math.min(1, Math.max(0.01, Number.isFinite(saved.strength) ? saved.strength : DEFAULT_SETTINGS.strength)),
         noise: Math.min(1, Math.max(0, Number.isFinite(saved.noise) ? saved.noise : DEFAULT_SETTINGS.noise)),
+        seed: Number.isInteger(saved.seed) && saved.seed >= 0 && saved.seed <= 0xffffffff ? saved.seed : null,
         resolution: saved.resolution in RESOLUTIONS ? saved.resolution : 'portrait',
         steps: Math.min(28, Math.max(23, Math.round(Number(saved.steps) || 23))),
         guidance: Math.min(10, Math.max(0.1, Number(saved.guidance) || 7)),
@@ -219,6 +220,11 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
       }
       if (!response.headers.get('content-type')?.includes('image/')) throw new Error('服务器没有返回有效图片。');
       const blob = await response.blob();
+      try {
+        const metadata = pngMetadata(new Uint8Array(await blob.arrayBuffer()));
+        const seed = JSON.parse(metadata.Comment ?? '{}').seed;
+        if (Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff) snapshot.seed = seed;
+      } catch { /* Keep the submitted seed when the result has no readable metadata. */ }
       const entry: HistoryEntry = { id: newId(), createdAt: Date.now(), blob, settings: snapshot, mode: requestMode };
       setEntries(es => [entry, ...es]); setSelectedId(entry.id); setShowEditor(false);
       try { await saveHistory(entry, storageOwner); } catch { setNotice({ text: '图片已生成，但本地存储空间不足，请及时下载。', error: true }); }
@@ -266,7 +272,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     <div className="prompt-bottom"><button className="secondary upload-button" onClick={() => referenceFileRef.current?.click()} disabled={busy}><ImagePlus size={17} />参考 · 图生图<Plus size={15} /></button><button className="secondary upload-button" onClick={() => fileRef.current?.click()} disabled={busy}><Paintbrush size={17} />上传图片进行重绘<Plus size={15} /></button></div>
   </>;
   const settingsPanel = <>
-    <div className="panel-heading"><span><Settings2 size={16} />生成设置</span><button className="tool" title="恢复默认生成设置" aria-label="恢复默认生成设置" disabled={busy} onClick={() => { patch({ resolution: 'portrait', steps: 23, guidance: 7, strength: DEFAULT_SETTINGS.strength, noise: DEFAULT_SETTINGS.noise }); setInpaintStrength(DEFAULT_SETTINGS.strength); }}><RotateCcw size={14} /></button><button className="tool mobile-only" aria-label="关闭设置面板" onClick={() => setMobilePanel(null)}><X size={18} /></button></div>
+    <div className="panel-heading"><span><Settings2 size={16} />生成设置</span><button className="tool" title="恢复默认生成设置" aria-label="恢复默认生成设置" disabled={busy} onClick={() => { patch({ resolution: 'portrait', steps: 23, guidance: 7, seed: null, strength: DEFAULT_SETTINGS.strength, noise: DEFAULT_SETTINGS.noise }); setInpaintStrength(DEFAULT_SETTINGS.strength); }}><RotateCcw size={14} /></button><button className="tool mobile-only" aria-label="关闭设置面板" onClick={() => setMobilePanel(null)}><X size={18} /></button></div>
     <div className="settings-scroll">
       <div className="setting-label">图像尺寸</div>
       <div className="resolution-list">{(Object.keys(RESOLUTIONS) as Resolution[]).map(key => { const r = RESOLUTIONS[key]; return <button key={key} disabled={busy || fitting} className={`resolution-card ${settings.resolution === key ? 'selected' : ''}`} onClick={() => { patch({ resolution: key }); if (mode === 'inpaint') setShowEditor(true); }}>
@@ -282,6 +288,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
       <div className="range-labels"><span>自由创作</span><span>贴合提示词</span></div>
       <div className="setting-divider" />
       <div className="fixed-setting"><span>采样器 <small>Sampler</small></span><LockKeyhole size={13} /><strong>Euler Ancestral</strong></div>
+      <div className="seed-setting"><div className="setting-label"><label htmlFor="seed-mode">Seed</label><select id="seed-mode" value={settings.seed === null ? 'random' : 'fixed'} disabled={busy} onChange={e => patch({ seed: e.target.value === 'random' ? null : 0 })}><option value="random">随机</option><option value="fixed">固定</option></select></div><input aria-label="固定 Seed" type="number" min="0" max="4294967295" step="1" placeholder="每次生成随机 Seed" value={settings.seed ?? ''} disabled={busy || settings.seed === null} onChange={e => { const value = Number(e.target.value); if (e.target.value !== '' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff) patch({ seed: value }); }} /></div>
       <div className="fixed-setting"><span>生成数量 <small>Images</small></span><LockKeyhole size={13} /><strong>1 张</strong></div>
       {mode === 'inpaint' && <div className="inpaint-settings"><p className="setting-hint">{inpaintStrength === 1 ? '强度 1 会完全重画涂抹部分，不保留该部分原有结构。' : '以完整底图为上下文；强度越低，越保留涂抹部分的原有结构。'}</p><p className="setting-hint">边缘会柔化融合。修改分辨率会重新适配底图并清空蒙版。</p></div>}
     </div>

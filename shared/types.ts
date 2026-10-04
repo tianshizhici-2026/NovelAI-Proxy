@@ -25,6 +25,7 @@ export type Settings = {
   useCoords: boolean;
   strength: number;
   noise: number;
+  seed: number | null;
 };
 export type GenerationMode = 'generate' | 'inpaint' | 'img2img';
 export type GenerateInput = Settings & {
@@ -52,5 +53,5 @@ export type HistoryEntry = {
 export const DEFAULT_SETTINGS: Settings = {
   prompt: '', negativePrompt: '', qualityTags: true, defaultNegative: true,
   resolution: 'portrait', steps: 23, guidance: 7,
-  characters: [], useCoords: false, strength: 0.55, noise: 0.2,
+  characters: [], useCoords: false, strength: 0.55, noise: 0.2, seed: null,
 };

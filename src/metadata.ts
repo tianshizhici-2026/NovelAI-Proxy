@@ -135,6 +135,8 @@ export function normalizeMetadata(raw: ObjectData, width: number, height: number
     if (settings.guidance !== guidance) notes.push(`原图 Guidance ${guidance}，已调整为 ${settings.guidance}。`);
   }
   const strength = number(data.strength) ?? number(object(data.img2img).strength);
+  const seed = number(data.seed);
+  settings.seed = seed !== undefined && Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff ? seed : null;
   if (strength !== undefined) settings.strength = Math.min(1, Math.max(0.01, strength));
   const noise = number(data.noise);
   if (noise !== undefined) settings.noise = Math.min(1, Math.max(0, noise));

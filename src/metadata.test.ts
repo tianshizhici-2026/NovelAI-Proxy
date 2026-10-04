@@ -66,13 +66,14 @@ test('imports V4/V5 character prompts, negative captions, coordinates including 
   ]);
 });
 
-test('adapts unsupported generation parameters without importing model, seed or sampler', () => {
+test('adapts unsupported generation parameters while importing seed without model or sampler', () => {
   const result = normalizeMetadata({ Comment: JSON.stringify({ ...comment, width: 1536, height: 1024, steps: 50, scale: 20, seed: 123, model: 'other', sampler: 'other' }) }, 1536, 1024);
   assert.equal(result.settings.resolution, 'landscape');
   assert.equal(result.settings.steps, 28);
   assert.equal(result.settings.guidance, 10);
   assert.equal(result.notes.length, 3);
-  assert.equal('seed' in result.settings || 'model' in result.settings || 'sampler' in result.settings, false);
+  assert.equal(result.settings.seed, 123);
+  assert.equal('model' in result.settings || 'sampler' in result.settings, false);
   assert.deepEqual(result.settings.characters, []);
   assert.throws(() => normalizeMetadata({ Comment: '{invalid', Description: 'ordinary picture' }, 100, 100), /没有可导入/);
 });
@@ -116,4 +117,9 @@ test('rejects oversized compressed metadata and incomplete PNG chunks', () => {
   assert.throws(() => pngMetadata(png(['zTXt', bomb])), /过大/);
   const data = png(['tEXt', strToU8('Comment\0hello')]);
   assert.throws(() => pngMetadata(data.subarray(0, data.length - 2)), /不完整/);
+});
+
+test('metadata imports valid uint32 seeds and falls back to random for absent or invalid seeds', () => {
+  for (const seed of [0, 123456, 0xffffffff]) assert.equal(normalizeMetadata({ Comment: JSON.stringify({ prompt: 'test', seed }) }, 1024, 1024).settings.seed, seed);
+  for (const seed of [undefined, null, -1, 1.5, 4294967296, '123']) assert.equal(normalizeMetadata({ Comment: JSON.stringify({ prompt: 'test', seed }) }, 1024, 1024).settings.seed, null);
 });

@@ -17,6 +17,7 @@ export const inputSchema = z.object({
   characters: z.array(character).max(22), useCoords: z.boolean(),
   strength: z.number().min(0).max(1),
   noise: z.number().min(0).max(1).default(0.2),
+  seed: z.number().int().min(0).max(0xffffffff).nullable().default(null),
   image: z.string().max(12_000_000).optional(), mask: z.string().max(12_000_000).optional(),
 }).strict().superRefine((data, ctx) => {
   if (!data.prompt.trim() && !data.characters.some(c => c.enabled && c.prompt.trim()))
@@ -55,13 +56,13 @@ export function buildPayload(input: ValidatedInput, images?: { image: string; ma
   const prompt = [input.prompt.trim(), input.qualityTags ? 'very aesthetic, masterpiece, no text' : ''].filter(Boolean).join(', ');
   const negativePrompt = combinedNegativePrompt(input.negativePrompt, input.defaultNegative);
   const characters = input.characters.filter(c => c.enabled && c.prompt.trim());
-  const seed = randomInt(0, 0x1_0000_0000);
+  const seed = input.seed ?? randomInt(0, 0x1_0000_0000);
   const captions = (negative: boolean) => characters.map(c => ({
     char_caption: negative ? c.negativePrompt : c.prompt,
     centers: [{ x: c.x, y: c.y }],
   }));
   const imageParameters: { image?: string; mask?: string; extra_noise_seed?: number; strength?: number; noise?: number; color_correct?: boolean; img2img?: { strength: number; color_correct: boolean } } = images ? {
-    ...images, extra_noise_seed: seed - 1,
+    ...images, extra_noise_seed: (seed - 1) >>> 0,
     ...(input.mode === 'img2img' ? { strength: input.strength, noise: input.noise, color_correct: false }
       : input.strength < 1 ? { img2img: { strength: input.strength, color_correct: true } } : {}),
   } : {};

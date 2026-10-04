@@ -17,8 +17,8 @@ test('default negative toggle merges the official preset with custom content in 
   const { defaultNegative: _unused, ...legacy } = input;
   assert.equal(inputSchema.parse(legacy).defaultNegative, false);
 });
-test('rejects paid dimensions, 29–30 steps, seeds, sampler, sample count, and model overrides', () => {
-  for (const changes of [{ steps: 29 }, { steps: 30 }, { steps: 22 }, { steps: 23.5 }, { resolution: 'custom' }, { seed: 123 }, { sampler: 'ddim' }, { n_samples: 2 }, { model: 'another' }, { guidance: 11 }, { guidance: 0 }])
+test('rejects paid dimensions, 29–30 steps, invalid seeds, sampler, sample count, and model overrides', () => {
+  for (const changes of [{ steps: 29 }, { steps: 30 }, { steps: 22 }, { steps: 23.5 }, { resolution: 'custom' }, { seed: -1 }, { seed: 4294967296 }, { seed: 1.5 }, { seed: "123" }, { sampler: 'ddim' }, { n_samples: 2 }, { model: 'another' }, { guidance: 11 }, { guidance: 0 }])
     assert.equal(inputSchema.safeParse({ ...input, ...changes }).success, false, JSON.stringify(changes));
 });
 test('enforces exact dimensions, default sampler, and one random seed per request', () => {
@@ -51,7 +51,7 @@ test('uses V5 Full inpainting variant and nested img2img strength', () => {
   assert.deepEqual(payload.parameters.img2img, { strength: 0.55, color_correct: true });
   assert.equal(payload.parameters.mask, 'canonical-mask');
   assert.equal(payload.parameters.image, 'canonical-image');
-  assert.equal(payload.parameters.extra_noise_seed, payload.parameters.seed - 1);
+  assert.equal(payload.parameters.extra_noise_seed, (payload.parameters.seed - 1) >>> 0);
   assert.equal(buildPayload({ ...data, strength: 1 }, { image: 'image', mask: 'mask' }).parameters.img2img, undefined);
   assert.equal(inputSchema.safeParse({ ...input, image: 'image' }).success, false);
   assert.equal(inputSchema.safeParse({ ...input, mode: 'inpaint' }).success, false);
@@ -64,4 +64,20 @@ test('fails closed on missing, expired, non-Opus, or exhausted subscription', ()
     { ...subscription, usage: { percent: 50, isNegative: true } }, { ...subscription, usage: { percent: 0.99, isNegative: false } }, { ...subscription, usage: undefined }]) {
     assert.throws(() => eligibleSubscription(invalid, 1, now));
   }
+});
+
+test('fixed seeds including zero reach every generation mode, and omitted/null seeds remain random', () => {
+  for (const mode of ['generate', 'img2img', 'inpaint'] as const) {
+    const images = mode === 'generate' ? undefined : { image: 'fixture', ...(mode === 'inpaint' ? { mask: 'fixture' } : {}) };
+    for (const seed of [0, 123456, 0xffffffff]) {
+      const parsed = inputSchema.parse({ ...input, mode, seed, ...images });
+      assert.equal(buildPayload(parsed, images).parameters.seed, seed);
+      assert.equal(buildPayload(parsed, images).parameters.seed, seed);
+      if (images) assert.equal(buildPayload(parsed, images).parameters.extra_noise_seed, (seed - 1) >>> 0);
+    }
+  }
+  const { seed: _seed, ...legacy } = input;
+  assert.equal(inputSchema.parse(legacy).seed, null);
+  const seeds = new Set(Array.from({ length: 8 }, () => buildPayload(inputSchema.parse({ ...input, seed: null })).parameters.seed));
+  assert.ok(seeds.size > 1);
 });

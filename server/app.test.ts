@@ -126,7 +126,7 @@ test('inpaint endpoint sends the complete source and a separate binary mask, the
     assert.deepEqual(source, await sharp(original).removeAlpha().raw().toBuffer());
     const upstreamMask = await sharp(Buffer.from(body.parameters.mask, 'base64')).grayscale().raw().toBuffer();
     assert.deepEqual(upstreamMask, maskPixels);
-    assert.equal(body.parameters.extra_noise_seed, body.parameters.seed - 1);
+    assert.equal(body.parameters.extra_noise_seed, (body.parameters.seed - 1) >>> 0);
     assert.equal(body.parameters.noise_schedule, undefined);
     return new Response(generated);
   };

@@ -115,3 +115,5 @@
 .fullscreen-view>.tool{z-index:2}
 
 .inpaint-controls{grid-template-columns:minmax(0,1fr)}
+
+.seed-setting{margin:0 0 20px}.seed-setting .setting-label{align-items:center;margin-bottom:8px}.seed-setting select,.seed-setting>input{border:1px solid var(--border);border-radius:5px;background:var(--field);color:var(--text);padding:7px 9px;font-size:12px}.seed-setting>input{width:100%;min-width:0;height:36px}.seed-setting>input:disabled{color:var(--muted)}
