@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Aperture, ArrowDownToLine, ArrowRight, Check, Copy, Expand, FileImage, History, ImagePlus, Images, Info, Layers, LoaderCircle, LockKeyhole, LogOut, Moon, Paintbrush, Plus, RotateCcw, Settings2, ShieldCheck, Sparkles, Sun, Trash2, Upload, WandSparkles, X } from 'lucide-react';
+import { Aperture, ArrowDownToLine, ArrowRight, Check, Copy, Expand, FileImage, History, ImagePlus, Images, Info, Layers, LoaderCircle, LockKeyhole, UnlockKeyhole, LogOut, Moon, Paintbrush, Plus, RotateCcw, Settings2, ShieldCheck, Sparkles, Sun, Trash2, Upload, WandSparkles, X } from 'lucide-react';
 import { zipSync, strToU8 } from 'fflate';
 import { DEFAULT_SETTINGS, RESOLUTIONS, type GenerationMode, type GenerationJobStatus, type HistoryEntry, type Resolution, type ServiceStatus, type Settings } from '../shared/types';
 import { DEFAULT_NEGATIVE_PROMPT, splitNegativePrompt } from '../shared/negative';
@@ -38,6 +38,14 @@ function initialSettings(draftKey: string): Settings {
   } catch { /* An unavailable browser store must not prevent use. */ }
   return { ...DEFAULT_SETTINGS };
 }
+function nextRandomSeed() { return crypto.getRandomValues(new Uint32Array(1))[0]; }
+function initialDisplayedSeed(draftKey: string) {
+  try {
+    const seed = JSON.parse(localStorage.getItem(draftKey) ?? 'null')?.displayedSeed;
+    if (Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff) return seed as number;
+  } catch { /* Start with a fresh random seed when storage is unavailable. */ }
+  return nextRandomSeed();
+}
 function humanTime(createdAt: number) { return new Date(createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
 function initialInpaintStrength(draftKey: string) {
   try {
@@ -62,6 +70,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     try { localStorage.setItem('novelai-theme', theme); } catch { /* Keep the current theme without storage. */ }
   }, [theme]);
   const [settings, setSettings] = useState<Settings>(() => initialSettings(draftKey));
+  const [randomSeed, setRandomSeed] = useState(() => initialDisplayedSeed(draftKey));
   const [inpaintStrength, setInpaintStrength] = useState(() => initialInpaintStrength(draftKey));
   const [mode, setMode] = useState<GenerationMode>('generate');
   const [status, setStatus] = useState<ServiceStatus>({ configured: false, ready: false, message: '正在连接服务…' });
@@ -132,8 +141,8 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     return () => { clearInterval(interval); requestRef.current?.abort(); };
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(draftKey, JSON.stringify({ ...settings, positionDefaultsVersion: 1 })); } catch { /* Continue without persistence. */ }
-  }, [settings]);
+    try { localStorage.setItem(draftKey, JSON.stringify({ ...settings, displayedSeed: settings.seed ?? randomSeed, positionDefaultsVersion: 1 })); } catch { /* Continue without persistence. */ }
+  }, [settings, randomSeed]);
   useEffect(() => {
     try { localStorage.setItem(`${draftKey}:inpaint-strength`, JSON.stringify(inpaintStrength)); } catch { /* Continue without persistence. */ }
   }, [inpaintStrength]);
@@ -192,7 +201,13 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   }
   async function generate() {
     if (!canGenerate || busyRef.current || importingRef.current) return;
-    const snapshot = structuredClone({ ...settings, strength: mode === 'inpaint' ? inpaintStrength : Math.max(0.01, settings.strength) });
+    let seed = settings.seed;
+    if (seed === null) {
+      seed = nextRandomSeed();
+      if (seed === randomSeed) seed = (seed + 1) >>> 0;
+      setRandomSeed(seed);
+    }
+    const snapshot = structuredClone({ ...settings, seed, strength: mode === 'inpaint' ? inpaintStrength : Math.max(0.01, settings.strength) });
     const requestMode = mode;
     const input = { ...snapshot, mode: requestMode, ...(requestMode === 'inpaint' ? { image: baseImage, mask: maskRef.current!.exportMask() } : requestMode === 'img2img' ? { image: baseImage } : {}) };
     busyRef.current = true; setBusy(true); setQueuePosition(0); setMobilePanel(null); setNotice(null);
@@ -223,7 +238,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
       try {
         const metadata = pngMetadata(new Uint8Array(await blob.arrayBuffer()));
         const seed = JSON.parse(metadata.Comment ?? '{}').seed;
-        if (Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff) snapshot.seed = seed;
+        if (Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff) { snapshot.seed = seed; if (settings.seed === null) setRandomSeed(seed); }
       } catch { /* Keep the submitted seed when the result has no readable metadata. */ }
       const entry: HistoryEntry = { id: newId(), createdAt: Date.now(), blob, settings: snapshot, mode: requestMode };
       setEntries(es => [entry, ...es]); setSelectedId(entry.id); setShowEditor(false);
@@ -288,7 +303,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
       <div className="range-labels"><span>自由创作</span><span>贴合提示词</span></div>
       <div className="setting-divider" />
       <div className="fixed-setting"><span>采样器 <small>Sampler</small></span><LockKeyhole size={13} /><strong>Euler Ancestral</strong></div>
-      <div className="seed-setting"><div className="setting-label"><label htmlFor="seed-mode">Seed</label><select id="seed-mode" value={settings.seed === null ? 'random' : 'fixed'} disabled={busy} onChange={e => patch({ seed: e.target.value === 'random' ? null : 0 })}><option value="random">随机</option><option value="fixed">固定</option></select></div><input aria-label="固定 Seed" type="number" min="0" max="4294967295" step="1" placeholder="每次生成随机 Seed" value={settings.seed ?? ''} disabled={busy || settings.seed === null} onChange={e => { const value = Number(e.target.value); if (e.target.value !== '' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff) patch({ seed: value }); }} /></div>
+      <div className="seed-setting"><label htmlFor="seed-value">Seed:</label><input id="seed-value" aria-label="Seed 数值" type="number" min="0" max="4294967295" step="1" value={settings.seed ?? randomSeed} readOnly={settings.seed === null} disabled={busy} onChange={e => { const value = Number(e.target.value); if (settings.seed !== null && e.target.value !== '' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff) patch({ seed: value }); }} /><button className={`tool seed-lock${settings.seed !== null ? ' active' : ''}`} type="button" aria-label={settings.seed === null ? '锁定 Seed' : '解锁 Seed'} aria-pressed={settings.seed !== null} title={settings.seed === null ? '锁定当前 Seed，启用编辑' : '解锁后每次生成随机 Seed'} disabled={busy} onClick={() => { if (settings.seed === null) patch({ seed: randomSeed }); else { setRandomSeed(settings.seed); patch({ seed: null }); } }}>{settings.seed === null ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}</button></div>
       <div className="fixed-setting"><span>生成数量 <small>Images</small></span><LockKeyhole size={13} /><strong>1 张</strong></div>
       {mode === 'inpaint' && <div className="inpaint-settings"><p className="setting-hint">{inpaintStrength === 1 ? '强度 1 会完全重画涂抹部分，不保留该部分原有结构。' : '以完整底图为上下文；强度越低，越保留涂抹部分的原有结构。'}</p><p className="setting-hint">边缘会柔化融合。修改分辨率会重新适配底图并清空蒙版。</p></div>}
     </div>

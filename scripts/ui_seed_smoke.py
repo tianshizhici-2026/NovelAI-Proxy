@@ -27,26 +27,39 @@ with sync_playwright() as p:
         route.fulfill(body=png(body['seed'] if body['seed'] is not None else 987654), content_type='image/png')
     page.route('**/api/generate', generate)
     page.goto('http://127.0.0.1:6006')
-    expect(page.get_by_label('Seed', exact=True)).to_have_value('random')
-    expect(page.get_by_label('固定 Seed', exact=True)).to_be_disabled()
+    expect(page.get_by_role('button', name='锁定 Seed', exact=True)).to_have_attribute('aria-pressed', 'false')
+    expect(page.get_by_label('Seed 数值', exact=True)).to_have_attribute('readonly', '')
+    initial_seed = page.get_by_label('Seed 数值', exact=True).input_value()
+    assert 0 <= int(initial_seed) <= 4294967295
     page.get_by_label('场景提示词', exact=True).fill('seed test')
-    page.get_by_label('Seed', exact=True).select_option('fixed')
-    page.get_by_label('固定 Seed', exact=True).fill('0')
+    page.get_by_role('button', name='锁定 Seed', exact=True).click()
+    expect(page.get_by_label('Seed 数值', exact=True)).to_have_value(initial_seed)
+    page.get_by_label('Seed 数值', exact=True).fill('0')
     for _ in range(2):
         page.get_by_role('button', name='生成图像', exact=True).click()
         expect(page.get_by_role('button', name='生成图像', exact=True)).to_be_enabled()
         assert requests[-1]['seed'] == 0
-    page.get_by_label('Seed', exact=True).select_option('random')
+    page.get_by_role('button', name='解锁 Seed', exact=True).click()
+    previous_seed = 0
+    for _ in range(2):
+        page.get_by_role('button', name='生成图像', exact=True).click()
+        expect(page.get_by_role('button', name='复制提示词', exact=True)).to_be_enabled()
+        random_seed = requests[-1]['seed']
+        assert isinstance(random_seed, int) and random_seed != previous_seed
+        expect(page.get_by_label('Seed 数值', exact=True)).to_have_value(str(random_seed))
+        expect(page.get_by_role('button', name='锁定 Seed', exact=True)).to_have_attribute('aria-pressed', 'false')
+        previous_seed = random_seed
+    page.get_by_role('button', name='锁定 Seed', exact=True).click()
     page.get_by_role('button', name='生成图像', exact=True).click()
     expect(page.get_by_role('button', name='复制提示词', exact=True)).to_be_enabled()
-    assert requests[-1]['seed'] is None
-    expect(page.get_by_label('Seed', exact=True)).to_have_value('random')
+    assert requests[-1]['seed'] == random_seed
+    page.get_by_role('button', name='解锁 Seed', exact=True).click()
     page.get_by_role('button', name='复制提示词', exact=True).click()
-    expect(page.get_by_label('固定 Seed', exact=True)).to_have_value('987654')
+    expect(page.get_by_label('Seed 数值', exact=True)).to_have_value(str(random_seed))
     file = {'name': 'seed.png', 'mimeType': 'image/png', 'buffer': png(4294967295)}
     page.get_by_label('上传图片导入元数据', exact=True).set_input_files(file)
-    expect(page.get_by_label('Seed', exact=True)).to_have_value('fixed')
-    expect(page.get_by_label('固定 Seed', exact=True)).to_have_value('4294967295')
+    expect(page.get_by_role('button', name='解锁 Seed', exact=True)).to_have_attribute('aria-pressed', 'true')
+    expect(page.get_by_label('Seed 数值', exact=True)).to_have_value('4294967295')
     page.get_by_label('上传 图生图 参考图', exact=True).set_input_files(file)
     expect(page.get_by_alt_text('图生图 参考图', exact=True)).to_be_visible()
     page.get_by_role('button', name='生成 图生图', exact=True).click()
@@ -61,13 +74,19 @@ with sync_playwright() as p:
     expect(page.get_by_role('button', name='继续重绘', exact=True)).to_be_enabled()
     assert requests[-1]['mode'] == 'inpaint' and requests[-1]['seed'] == 4294967295
     page.reload()
-    expect(page.get_by_label('固定 Seed', exact=True)).to_have_value('4294967295')
+    expect(page.get_by_label('Seed 数值', exact=True)).to_have_value('4294967295')
     page.set_viewport_size({'width': 390, 'height': 844})
     page.get_by_role('button', name='设置', exact=True).click()
-    expect(page.get_by_label('Seed', exact=True)).to_have_value('fixed')
-    page.get_by_label('Seed', exact=True).select_option('random')
-    expect(page.get_by_label('固定 Seed', exact=True)).to_be_disabled()
+    expect(page.get_by_role('button', name='解锁 Seed', exact=True)).to_have_attribute('aria-pressed', 'true')
+    page.get_by_role('button', name='解锁 Seed', exact=True).click()
+    expect(page.get_by_label('Seed 数值', exact=True)).to_have_attribute('readonly', '')
+    expect(page.get_by_label('Seed 数值', exact=True)).to_have_value('4294967295')
+    page.reload()
+    page.get_by_role('button', name='设置', exact=True).click()
+    expect(page.get_by_label('Seed 数值', exact=True)).to_have_value('4294967295')
+    expect(page.get_by_role('button', name='锁定 Seed', exact=True)).to_have_attribute('aria-pressed', 'false')
     assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
+    page.screenshot(path='artifacts/novelai-seed-lock-mobile.png')
     assert not errors, errors
     browser.close()
     print('Seed UI passed: random/fixed, seed 0, metadata import, history reuse, all modes, persistence and mobile controls.')

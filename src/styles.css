@@ -116,4 +116,4 @@
 
 .inpaint-controls{grid-template-columns:minmax(0,1fr)}
 
-.seed-setting{margin:0 0 20px}.seed-setting .setting-label{align-items:center;margin-bottom:8px}.seed-setting select,.seed-setting>input{border:1px solid var(--border);border-radius:5px;background:var(--field);color:var(--text);padding:7px 9px;font-size:12px}.seed-setting>input{width:100%;min-width:0;height:36px}.seed-setting>input:disabled{color:var(--muted)}
+.seed-setting{display:flex;align-items:center;gap:9px;margin:0 0 20px}.seed-setting>label{font-size:12px;flex:none}.seed-setting>input{flex:1;width:0;min-width:0;height:36px;border:1px solid var(--border);border-radius:5px;background:var(--field);color:var(--text);padding:7px 9px;font-size:12px;font-variant-numeric:tabular-nums}.seed-setting>input[readonly]{color:var(--muted)}.seed-setting>.seed-lock{flex:none;width:34px;height:36px;border:1px solid var(--border)}.seed-setting>.seed-lock.active{border-color:var(--pink-border)}
