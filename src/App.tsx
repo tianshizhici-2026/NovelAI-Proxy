@@ -107,8 +107,9 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   const hasPrompt = !!settings.prompt.trim() || settings.characters.some(c => c.enabled && c.prompt.trim());
   const canGenerate = status.ready && !busy && !fitting && !importing && hasPrompt && (mode === 'generate' || (!!baseImage && (mode === 'img2img' || hasMask)));
   const patch = (change: Partial<Settings>) => setSettings(s => ({ ...s, ...change }));
-  function restoreEntrySettings(entry: HistoryEntry) {
+  function restoreEntrySettings(entry: HistoryEntry, reuseSeed = true) {
     setSettings(current => structuredClone({ ...DEFAULT_SETTINGS, ...entry.settings,
+      seed: reuseSeed ? entry.settings.seed : null,
       strength: entry.mode === 'img2img' ? entry.settings.strength : current.strength,
       noise: entry.mode === 'img2img' ? entry.settings.noise : current.noise,
     }));
@@ -183,7 +184,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
       const closest = (Object.keys(RESOLUTIONS) as Resolution[]).sort((a, b) => Math.abs(Math.log(ratio / (RESOLUTIONS[a].width / RESOLUTIONS[a].height))) - Math.abs(Math.log(ratio / (RESOLUTIONS[b].width / RESOLUTIONS[b].height))))[0];
       const metadata = target === 'img2img' && ['image/png', 'image/webp'].includes(file.type)
         ? await importImageMetadata(file).catch(() => null) : null;
-      patch({ resolution: closest, ...metadata?.settings }); setBaseSource(source); setMode(target); setShowEditor(true); setMobilePanel(null);
+      patch({ resolution: closest, ...metadata?.settings, seed: null }); setRandomSeed(nextRandomSeed()); setBaseSource(source); setMode(target); setShowEditor(true); setMobilePanel(null);
       setNotice({ text: metadata ? `参考图已载入，并覆盖提示词、角色和生成参数。${metadata.notes.join('')}` : target === 'img2img' ? '参考图已载入，可调整 Strength 和 Noise。' : '底图已载入。', error: false });
     } catch { setNotice({ text: '图片读取失败，或像素尺寸过大。', error: true }); }
     finally { importingRef.current = false; setImporting(false); }
@@ -250,7 +251,8 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   async function useForInpaint(entry: HistoryEntry, target: 'inpaint' | 'img2img' = 'inpaint') {
     if (busy) return;
     const source = await imageToDataUrl(entry.blob);
-    restoreEntrySettings(entry);
+    restoreEntrySettings(entry, false);
+    setRandomSeed(nextRandomSeed());
     if (target === 'inpaint' && entry.mode !== 'inpaint') setInpaintStrength(DEFAULT_SETTINGS.strength);
     setBaseSource(source); setMode(target); setShowEditor(true);
   }

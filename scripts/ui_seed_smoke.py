@@ -62,17 +62,23 @@ with sync_playwright() as p:
     expect(page.get_by_label('Seed 数值', exact=True)).to_have_value('4294967295')
     page.get_by_label('上传 图生图 参考图', exact=True).set_input_files(file)
     expect(page.get_by_alt_text('图生图 参考图', exact=True)).to_be_visible()
+    expect(page.get_by_role('button', name='锁定 Seed', exact=True)).to_have_attribute('aria-pressed', 'false')
     page.get_by_role('button', name='生成 图生图', exact=True).click()
     expect(page.get_by_role('button', name='继续重绘', exact=True)).to_be_enabled()
-    assert requests[-1]['mode'] == 'img2img' and requests[-1]['seed'] == 4294967295
+    assert requests[-1]['mode'] == 'img2img' and requests[-1]['seed'] != 4294967295
+    img2img_seed = requests[-1]['seed']
+    page.get_by_role('button', name='锁定 Seed', exact=True).click()
     page.get_by_role('button', name='继续重绘', exact=True).click()
     expect(page.get_by_label('重绘蒙版画布', exact=True)).to_be_visible()
+    expect(page.get_by_role('button', name='锁定 Seed', exact=True)).to_have_attribute('aria-pressed', 'false')
     box = page.get_by_label('重绘画布视口', exact=True).bounding_box()
     x, y = box['x'] + box['width']/2, box['y'] + box['height']/2
     page.mouse.move(x,y); page.mouse.down(); page.mouse.move(x+20,y+20,steps=5); page.mouse.up()
     page.get_by_role('button', name='生成局部重绘', exact=True).click()
     expect(page.get_by_role('button', name='继续重绘', exact=True)).to_be_enabled()
-    assert requests[-1]['mode'] == 'inpaint' and requests[-1]['seed'] == 4294967295
+    assert requests[-1]['mode'] == 'inpaint' and requests[-1]['seed'] != img2img_seed
+    page.get_by_role('button', name='锁定 Seed', exact=True).click()
+    page.get_by_label('Seed 数值', exact=True).fill('4294967295')
     page.reload()
     expect(page.get_by_label('Seed 数值', exact=True)).to_have_value('4294967295')
     page.set_viewport_size({'width': 390, 'height': 844})
