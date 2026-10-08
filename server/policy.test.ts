@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_SETTINGS, RESOLUTIONS } from '../shared/types.js';
+import { DEFAULT_SETTINGS, RESOLUTIONS, FREE_RESOLUTIONS } from '../shared/types.js';
 import { buildPayload, eligibleSubscription, inputSchema } from './policy.js';
 import { DEFAULT_NEGATIVE_PROMPT } from '../shared/negative.js';
 
@@ -22,7 +22,7 @@ test('rejects paid dimensions, 29–30 steps, invalid seeds, sampler, sample cou
     assert.equal(inputSchema.safeParse({ ...input, ...changes }).success, false, JSON.stringify(changes));
 });
 test('enforces exact dimensions, default sampler, and one random seed per request', () => {
-  for (const resolution of Object.keys(RESOLUTIONS) as (keyof typeof RESOLUTIONS)[]) {
+  for (const resolution of FREE_RESOLUTIONS) {
     const parsed = inputSchema.parse({ ...input, resolution, steps: 28 });
     const payload = buildPayload(parsed);
     assert.equal(payload.model, 'nai-diffusion-5-full');

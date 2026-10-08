@@ -27,6 +27,7 @@ with sync_playwright() as p:
     page.add_init_script('''if (!localStorage.getItem('novelai-draft:inpaint-strength')) localStorage.setItem('novelai-draft:inpaint-strength', '0.01');''')
     account = {'username': 'img2img-test', 'role': 'admin', 'quota': 0, 'used': 0, 'totalUsed': 0, 'remaining': None, 'bannedUntil': 0, 'banned': False}
     page.route('**/api/auth/me', lambda route: route.fulfill(json={'account': account}))
+    page.route('**/api/admin/prompts', lambda route: route.fulfill(json={'prompts': []}))
     page.route('**/api/status', lambda route: route.fulfill(json={'configured': True, 'ready': True, 'usagePercent': 91, 'account': account}))
     errors, submitted = [], []
     page.on('pageerror', lambda error: errors.append(str(error)))

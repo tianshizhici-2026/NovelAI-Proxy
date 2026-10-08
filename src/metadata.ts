@@ -1,6 +1,7 @@
 import { pngMetadata, decompressMetadata as decompress } from '../shared/png';
 export { pngMetadata } from '../shared/png';
 import { RESOLUTIONS, type Character, type Resolution, type Settings } from '../shared/types';
+import type { SelectedPrompt } from '../shared/prompts';
 import { splitNegativePrompt } from '../shared/negative';
 import { newId } from './id';
 
@@ -123,6 +124,11 @@ export function normalizeMetadata(raw: ObjectData, width: number, height: number
     characters, useCoords: positive.use_coords === true || data.use_coords === true,
     // Exported prompts usually already contain the quality suffix.
     qualityTags: typeof data.qualityToggle === 'boolean' ? data.qualityToggle : typeof data.quality_tags === 'boolean' ? data.quality_tags : false,
+    promptModules: Array.isArray(data.novelai_proxy_modules) ? data.novelai_proxy_modules.slice(0, 100).flatMap(value => {
+      const item = object(value);
+      if (typeof item.id !== 'string' || item.id.length > 80 || !['artist', 'quality'].includes(String(item.category)) || typeof item.prompt !== 'string' || !item.prompt.trim() || item.prompt.length > 6000 || typeof item.weight !== 'number' || !Number.isFinite(item.weight) || item.weight < 0.1 || item.weight > 3) return [];
+      return [item as SelectedPrompt];
+    }) : [],
   };
   const steps = number(data.steps);
   if (steps !== undefined) {
@@ -143,9 +149,10 @@ export function normalizeMetadata(raw: ObjectData, width: number, height: number
   const w = number(data.width) ?? width, h = number(data.height) ?? height;
   if (w > 0 && h > 0) {
     const ratio = w / h;
-    settings.resolution = (Object.keys(RESOLUTIONS) as Resolution[]).sort((a, b) =>
+    settings.resolution = (Object.keys(RESOLUTIONS) as Resolution[]).find(key => RESOLUTIONS[key].width === w && RESOLUTIONS[key].height === h) ?? (Object.keys(RESOLUTIONS) as Resolution[]).sort((a, b) =>
       Math.abs(Math.log(ratio / (RESOLUTIONS[a].width / RESOLUTIONS[a].height))) - Math.abs(Math.log(ratio / (RESOLUTIONS[b].width / RESOLUTIONS[b].height))))[0];
     const target = RESOLUTIONS[settings.resolution];
+    settings.useAnlas = target.width * target.height > 1_048_576;
     if (w !== target.width || h !== target.height) notes.push(`原图 ${w} × ${h}，已适配为 ${target.width} × ${target.height}。`);
   }
   return { settings, notes };

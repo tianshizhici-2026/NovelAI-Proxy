@@ -30,6 +30,7 @@ with sync_playwright() as p:
     page.on('pageerror', lambda error: errors.append(str(error)))
     account = {'username': 'sheet-user', 'role': 'user', 'quota': 50, 'used': 0, 'totalUsed': 0, 'remaining': 50, 'bannedUntil': 0, 'banned': False}
     page.route('**/api/auth/me', lambda route: route.fulfill(json={'account': account}))
+    page.route('**/api/admin/prompts', lambda route: route.fulfill(json={'prompts': []}))
     page.route('**/api/status', lambda route: route.fulfill(json={'configured': True, 'ready': True, 'usagePercent': 91, 'message': '已连接', 'account': account}))
     page.goto('http://127.0.0.1:6006')
     peek = page.get_by_role('button', name='上滑展开提示词面板', exact=True)

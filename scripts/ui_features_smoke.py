@@ -59,6 +59,7 @@ with sync_playwright() as p:
     context.add_init_script("Object.defineProperty(crypto, 'randomUUID', {value: undefined})")
     page = context.new_page()
     page.route('**/api/auth/me', lambda route: route.fulfill(json={'account': {'username': 'test-admin', 'role': 'admin', 'quota': 0, 'used': 0, 'totalUsed': 0, 'remaining': None, 'bannedUntil': 0, 'banned': False}}))
+    page.route('**/api/admin/prompts', lambda route: route.fulfill(json={'prompts': []}))
     errors, requests = [], []
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.route('**/api/status', lambda route: route.fulfill(json={

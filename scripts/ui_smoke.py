@@ -1,3 +1,4 @@
+import re
 """Browser workflow checks. Generation is intercepted with a local PNG fixture."""
 import base64
 import io
@@ -25,6 +26,7 @@ with sync_playwright() as p:
     context = browser.new_context(viewport={"width": 1600, "height": 1000})
     page = context.new_page()
     page.route('**/api/auth/me', lambda route: route.fulfill(json={'account': {'username': 'test-admin', 'role': 'admin', 'quota': 0, 'used': 0, 'totalUsed': 0, 'remaining': None, 'bannedUntil': 0, 'banned': False}}))
+    page.route('**/api/admin/prompts', lambda route: route.fulfill(json={'prompts': []}))
     page.route("**/api/status", lambda route: route.fulfill(json={"configured": False, "ready": False, "message": "等待配置服务端 Token"}))
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
@@ -56,7 +58,7 @@ with sync_playwright() as p:
     grid = page.locator(".position-grid").bounding_box()
     page.mouse.click(grid["x"] + grid["width"] * 0.25, grid["y"] + grid["height"] * 0.4)
     page.get_by_role("button", name="完成", exact=True).click()
-    page.get_by_role("button", name="方图", exact=False).click()
+    page.get_by_role("button", name=re.compile("^方图")).click()
     page.get_by_role("button", name="28", exact=True).click()
     page.get_by_label("Guidance 数值", exact=True).fill("6.5")
     page.get_by_role("button", name="生成图像", exact=True).click()

@@ -3,6 +3,7 @@ import { Aperture, ArrowLeft, Ban, Check, ChevronRight, LoaderCircle, LogOut, Re
 import type { AccountView } from '../shared/accounts';
 import type { ServiceStatus } from '../shared/types';
 import { accountJson } from './accountApi';
+import PromptManager from './PromptManager';
 
 function AccountCard({ account, working, onChange }: { account: AccountView; working: boolean; onChange: (username: string, change: object) => Promise<void> }) {
   const [quota, setQuota] = useState(String(account.quota));
@@ -65,11 +66,11 @@ export default function Admin({ user, onBack, onLogout }: { user: AccountView; o
   const [working, setWorking] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const [page, setPage] = useState<'accounts' | 'detail' | 'edit' | 'new' | 'key'>('accounts');
+  const [page, setPage] = useState<'accounts' | 'detail' | 'edit' | 'new' | 'key' | 'prompts'>('accounts');
   const [selected, setSelected] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const account = accounts.find(item => item.username === selected);
-  function navigate(nextPage: 'accounts' | 'detail' | 'edit' | 'new' | 'key', username = selected) { setPage(nextPage); setSelected(username); setError(''); setNotice(''); setConfirmDelete(false); }
+  function navigate(nextPage: 'accounts' | 'detail' | 'edit' | 'new' | 'key' | 'prompts', username = selected) { setPage(nextPage); setSelected(username); setError(''); setNotice(''); setConfirmDelete(false); }
   async function load() {
     try { const result = await accountJson<{ accounts: AccountView[] }>('/api/admin/accounts'); setAccounts(result.accounts); }
     catch (error) { setError(error instanceof Error ? error.message : '账号读取失败。'); }
@@ -102,11 +103,11 @@ export default function Admin({ user, onBack, onLogout }: { user: AccountView; o
     finally { setWorking(''); }
   }
   const users = accounts.filter(account => account.role === 'user');
-  const title = page === 'accounts' ? '账号管理' : page === 'key' ? 'API Key 设置' : page === 'new' ? '新增账号' : page === 'edit' ? '编辑账号' : selected;
+  const title = page === 'accounts' ? '账号管理' : page === 'prompts' ? '提示词模块' : page === 'key' ? 'API Key 设置' : page === 'new' ? '新增账号' : page === 'edit' ? '编辑账号' : selected;
   return <div className="admin-page"><header className="topbar"><a className="brand" href="/" onClick={event => { event.preventDefault(); onBack(); }}><Aperture size={24} /><strong>Novel<span>AI</span></strong><i /><small>管理中心</small></a><div className="topbar-right"><span className="admin-identity"><ShieldCheck size={15} />{user.username}</span><button className="secondary admin-back" onClick={onBack}><ArrowLeft size={15} /><span>返回工作台</span></button><button className="tool" aria-label="退出登录" onClick={onLogout}><LogOut size={17} /></button></div></header>
-    <main className="admin-main"><nav className="admin-tabs" aria-label="管理分类"><button className={page !== 'key' ? 'active' : ''} onClick={() => navigate('accounts')} disabled={!!working}><Users size={16} />账号管理</button><button className={page === 'key' ? 'active' : ''} onClick={() => navigate('key')} disabled={!!working}><KeyRound size={16} />API Key</button></nav>
+    <main className="admin-main"><nav className="admin-tabs" aria-label="管理分类"><button className={page !== 'key' && page !== 'prompts' ? 'active' : ''} onClick={() => navigate('accounts')} disabled={!!working}><Users size={16} />账号管理</button><button className={page === 'key' ? 'active' : ''} onClick={() => navigate('key')} disabled={!!working}><KeyRound size={16} />API Key</button><button className={page === 'prompts' ? 'active' : ''} onClick={() => navigate('prompts')} disabled={!!working}><WandSparkles size={16} />提示词模块</button></nav>
       <div className="admin-breadcrumb"><button disabled={!!working} onClick={() => navigate('accounts')}>管理中心</button><ChevronRight size={12} /><span>{title}</span></div>
-      <div className="admin-heading"><h1>{title}</h1><div className="admin-heading-actions">{page === 'accounts' ? <><button className="secondary" disabled={loading || !!working} onClick={() => { void load(); void loadStatus(); }}><RefreshCw size={15} />刷新</button><button className="primary" onClick={() => navigate('new')}><Plus size={15} />新增账号</button></> : page !== 'key' && <button className="secondary" disabled={!!working} onClick={() => navigate(page === 'edit' ? 'detail' : 'accounts')}><ArrowLeft size={15} />返回</button>}</div></div>
+      <div className="admin-heading"><h1>{title}</h1><div className="admin-heading-actions">{page === 'accounts' ? <><button className="secondary" disabled={loading || !!working} onClick={() => { void load(); void loadStatus(); }}><RefreshCw size={15} />刷新</button><button className="primary" onClick={() => navigate('new')}><Plus size={15} />新增账号</button></> : page !== 'key' && page !== 'prompts' && <button className="secondary" disabled={!!working} onClick={() => navigate(page === 'edit' ? 'detail' : 'accounts')}><ArrowLeft size={15} />返回</button>}</div></div>
       {(error || notice) && <div className={`admin-notice ${error ? 'is-error' : ''}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
       {page === 'accounts' && <><div className="admin-stats"><div><Users size={19} /><span>账号总数<strong>{accounts.length}</strong></span></div><div><WandSparkles size={19} /><span>普通用户累计生成<strong>{users.reduce((sum, account) => sum + account.totalUsed, 0)}<small>张</small></strong></span></div><div><ShieldCheck size={19} /><span>Opus 剩余额度<strong>{opusPercent === undefined ? '—' : `${Math.floor(opusPercent)}%`}</strong></span></div></div>
         {loading ? <div className="admin-loading"><LoaderCircle className="spin" size={20} />正在读取…</div> : <div className="admin-account-list">{accounts.map(account => <button className="admin-account-row" key={account.username} onClick={() => navigate('detail', account.username)}><span className="account-avatar">{account.role === 'admin' ? <ShieldCheck size={21} /> : account.username.slice(0, 1).toUpperCase()}</span><span className="account-row-name"><strong>{account.username}</strong><small>{account.role === 'admin' ? '管理员' : '普通用户'} · 累计 {account.totalUsed} 张</small></span><span className="account-row-balance">{account.role === 'admin' ? '管理员' : account.banned ? '已封禁' : `剩余 ${account.remaining} / ${account.quota}`}</span><ChevronRight size={16} /></button>)}</div>}</>}
@@ -116,6 +117,7 @@ export default function Admin({ user, onBack, onLogout }: { user: AccountView; o
         {confirmDelete && <div className="admin-delete-confirm" role="alert"><p>删除账号 {account.username}？该账号将无法登录，用量记录也会删除。</p><div className="admin-form-actions"><button className="secondary" disabled={!!working} onClick={() => setConfirmDelete(false)}>取消</button><button className="danger-button" disabled={!!working} onClick={() => void remove()}>确认删除账号</button></div></div>}
         {account.role === 'user' ? <AccountCard key={account.username} account={account} working={!!working} onChange={change} /> : <div className="account-card"><h3>{account.username}</h3><p className="admin-form-hint">管理员 · 累计生成 {account.totalUsed} 张</p><p className="admin-form-hint">可管理账号和 API Key，不受本地额度限制。</p></div>}
       </div>}
+      {page === 'prompts' && <PromptManager />}
       {page === 'key' && <ApiKeySettings onSaved={() => void loadStatus()} />}
     </main></div>;
 }

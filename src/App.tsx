@@ -12,6 +12,10 @@ import { newId } from './id';
 import { clearHistory, deleteHistory, downloadBlob, fitImage, imageToDataUrl, loadHistory, saveHistory } from './storage';
 import type { AccountView } from '../shared/accounts';
 import { accountFetch } from './accountApi';
+import PromptModules from './PromptModules';
+import { defaultQualitySelection, type SelectedPrompt } from '../shared/prompts';
+import { FREE_RESOLUTIONS } from '../shared/types';
+import { generationAnlas, upscaleAnlas } from '../shared/anlas';
 
 function initialSettings(draftKey: string): Settings {
   try {
@@ -26,6 +30,8 @@ function initialSettings(draftKey: string): Settings {
         strength: Math.min(1, Math.max(0.01, Number.isFinite(saved.strength) ? saved.strength : DEFAULT_SETTINGS.strength)),
         noise: Math.min(1, Math.max(0, Number.isFinite(saved.noise) ? saved.noise : DEFAULT_SETTINGS.noise)),
         seed: Number.isInteger(saved.seed) && saved.seed >= 0 && saved.seed <= 0xffffffff ? saved.seed : null,
+        useAnlas: saved.useAnlas === true,
+        promptModules: Array.isArray(saved.promptModules) ? saved.promptModules.filter((m: SelectedPrompt) => m && typeof m.id === 'string' && ['artist', 'quality'].includes(m.category) && typeof m.prompt === 'string' && m.prompt.length <= 6000 && Number.isFinite(m.weight) && m.weight >= 0.1 && m.weight <= 3).slice(0, 100) : undefined,
         resolution: saved.resolution in RESOLUTIONS ? saved.resolution : 'portrait',
         steps: Math.min(28, Math.max(23, Math.round(Number(saved.steps) || 23))),
         guidance: Math.min(10, Math.max(0.1, Number(saved.guidance) || 7)),
@@ -69,7 +75,15 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'black-pink' ? '#17131b' : '#fff9fb');
     try { localStorage.setItem('novelai-theme', theme); } catch { /* Keep the current theme without storage. */ }
   }, [theme]);
-  const [settings, setSettings] = useState<Settings>(() => initialSettings(draftKey));
+  function allowedSettings(s: Settings): Settings {
+    if (user.role === 'admin') return s.qualityTags ? { ...s, qualityTags: false, promptModules: [...(s.promptModules ?? []), ...defaultQualitySelection().filter(item => !s.promptModules?.some(current => current.prompt === item.prompt))] } : s;
+    return { ...s, useAnlas: false, promptModules: [], resolution: FREE_RESOLUTIONS.includes(s.resolution as typeof FREE_RESOLUTIONS[number]) ? s.resolution : s.resolution.toLowerCase().includes('landscape') ? 'landscape' : s.resolution.toLowerCase().includes('square') ? 'square' : 'portrait' };
+  }
+  const [settings, setSettings] = useState<Settings>(() => {
+    const saved = initialSettings(draftKey);
+    if (user.role === 'admin' && saved.promptModules === undefined) return { ...saved, qualityTags: false, promptModules: saved.qualityTags ? defaultQualitySelection() : [] };
+    return allowedSettings(saved);
+  });
   const [randomSeed, setRandomSeed] = useState(() => initialDisplayedSeed(draftKey));
   const [inpaintStrength, setInpaintStrength] = useState(() => initialInpaintStrength(draftKey));
   const [mode, setMode] = useState<GenerationMode>('generate');
@@ -84,8 +98,9 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   const [hasMask, setHasMask] = useState(false);
   const [showEditor, setShowEditor] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [upscaling, setUpscaling] = useState(false);
   const [queuePosition, setQueuePosition] = useState(0);
-  const busyText = queuePosition > 0 ? `排队中 · 第 ${queuePosition} 位` : '正在生成…';
+  const busyText = queuePosition > 0 ? `排队中 · 第 ${queuePosition} 位` : upscaling ? '正在放大…' : '正在生成…';
   const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -104,15 +119,17 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   const urls = useMemo(() => new Map(entries.map(e => [e.id, URL.createObjectURL(e.blob)])), [entries]);
   useEffect(() => () => { urls.forEach(url => URL.revokeObjectURL(url)); }, [urls]);
   const selectedUrl = selected ? urls.get(selected.id) : undefined;
-  const hasPrompt = !!settings.prompt.trim() || settings.characters.some(c => c.enabled && c.prompt.trim());
-  const canGenerate = status.ready && !busy && !fitting && !importing && hasPrompt && (mode === 'generate' || (!!baseImage && (mode === 'img2img' || hasMask)));
-  const patch = (change: Partial<Settings>) => setSettings(s => ({ ...s, ...change }));
+  const hasPrompt = !!settings.prompt.trim() || settings.characters.some(c => c.enabled && c.prompt.trim()) || !!settings.promptModules?.length;
+  const serviceReady = status.ready || (user.role === 'admin' && settings.useAnlas && status.paidReady);
+  const estimatedCost = generationAnlas({ ...settings, strength: mode === 'inpaint' ? inpaintStrength : settings.strength }, mode, status.ready);
+  const canGenerate = serviceReady && !busy && !fitting && !importing && hasPrompt && (mode === 'generate' || (!!baseImage && (mode === 'img2img' || hasMask)));
+  const patch = (change: Partial<Settings>) => setSettings(s => allowedSettings({ ...s, ...change }));
   function restoreEntrySettings(entry: HistoryEntry, reuseSeed = true) {
-    setSettings(current => structuredClone({ ...DEFAULT_SETTINGS, ...entry.settings,
+    setSettings(current => allowedSettings(structuredClone({ ...DEFAULT_SETTINGS, ...entry.settings,
       seed: reuseSeed ? entry.settings.seed : null,
       strength: entry.mode === 'img2img' ? entry.settings.strength : current.strength,
       noise: entry.mode === 'img2img' ? entry.settings.noise : current.noise,
-    }));
+    })));
     if (entry.mode === 'inpaint') setInpaintStrength(Math.max(0.01, entry.settings.strength));
   }
   useEffect(() => {
@@ -210,7 +227,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     }
     const snapshot = structuredClone({ ...settings, seed, strength: mode === 'inpaint' ? inpaintStrength : Math.max(0.01, settings.strength) });
     const requestMode = mode;
-    const input = { ...snapshot, mode: requestMode, ...(requestMode === 'inpaint' ? { image: baseImage, mask: maskRef.current!.exportMask() } : requestMode === 'img2img' ? { image: baseImage } : {}) };
+    const input = { ...snapshot, useAnlas: snapshot.useAnlas === true, promptModules: snapshot.promptModules ?? [], mode: requestMode, ...(requestMode === 'inpaint' ? { image: baseImage, mask: maskRef.current!.exportMask() } : requestMode === 'img2img' ? { image: baseImage } : {}) };
     busyRef.current = true; setBusy(true); setQueuePosition(0); setMobilePanel(null); setNotice(null);
     const controller = new AbortController(); requestRef.current = controller;
     const generationId = newId();
@@ -256,6 +273,30 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     if (target === 'inpaint' && entry.mode !== 'inpaint') setInpaintStrength(DEFAULT_SETTINGS.strength);
     setBaseSource(source); setMode(target); setShowEditor(true);
   }
+  async function upscale(entry: HistoryEntry) {
+    if (busyRef.current || importingRef.current || user.role !== 'admin') return;
+    busyRef.current = true; setBusy(true); setUpscaling(true); setQueuePosition(0); setNotice(null);
+    const controller = new AbortController(); requestRef.current = controller;
+    const id = newId();
+    let polling = false;
+    const interval = setInterval(async () => {
+      if (polling || controller.signal.aborted) return;
+      polling = true;
+      try {
+        const response = await accountFetch(`/api/queue/${id}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]) });
+        if (response.ok && !controller.signal.aborted) { const job = await response.json() as GenerationJobStatus; setQueuePosition(job.state === 'waiting' ? job.position : 0); }
+      } catch { /* Queue polling does not resubmit the image. */ }
+      finally { polling = false; }
+    }, 1500);
+    try {
+      const response = await accountFetch('/api/admin/upscale', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Generation-ID': id }, body: JSON.stringify({ image: await imageToDataUrl(entry.blob) }), signal: controller.signal });
+      if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.error ?? '原生放大失败。'); }
+      const result: HistoryEntry = { ...entry, id: newId(), createdAt: Date.now(), blob: await response.blob(), imageWidth: (entry.imageWidth ?? RESOLUTIONS[entry.settings.resolution].width) * 2, imageHeight: (entry.imageHeight ?? RESOLUTIONS[entry.settings.resolution].height) * 2 };
+      setEntries(current => [result, ...current]); setSelectedId(result.id); setShowEditor(false);
+      try { await saveHistory(result, storageOwner); } catch { setNotice({ text: '图片已放大，但本地历史保存失败。', error: true }); }
+    } catch (error) { if (!controller.signal.aborted) setNotice({ text: error instanceof Error ? error.message : '原生放大失败。', error: true }); }
+    finally { clearInterval(interval); controller.abort(); requestRef.current = null; busyRef.current = false; setBusy(false); setUpscaling(false); setQueuePosition(0); void refreshStatus(); }
+  }
   async function removeEntry(entry: HistoryEntry) {
     try { await deleteHistory(entry.id, storageOwner); } catch { setNotice({ text: '无法删除本地历史。', error: true }); return; }
     setEntries(es => es.filter(e => e.id !== entry.id));
@@ -279,7 +320,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     <div className="prompt-scroll">
       <div className="prompt-label"><label htmlFor="base-prompt">场景提示词</label><span>Prompt</span></div>
       <div className="prompt-editor"><textarea id="base-prompt" maxLength={12000} rows={7} placeholder={'描述你想创作的画面…\n\n例如：1girl, outdoors, cherry blossoms, soft lighting'} value={settings.prompt} onChange={e => patch({ prompt: e.target.value })} /><div className="editor-footer"><span /><span>{settings.prompt.length.toLocaleString()} 字符</span></div></div>
-      <label className="toggle-row quality-row"><span><Sparkles size={15} />添加质量词</span><input type="checkbox" checked={settings.qualityTags} onChange={e => patch({ qualityTags: e.target.checked })} /><i className="switch" /></label>
+      {user.role === 'admin' ? <PromptModules selected={settings.promptModules ?? []} onChange={promptModules => patch({ promptModules, qualityTags: false })} /> : <label className="toggle-row quality-row"><span><Sparkles size={15} />添加质量词</span><input type="checkbox" checked={settings.qualityTags} onChange={e => patch({ qualityTags: e.target.checked })} /><i className="switch" /></label>}
       <Characters characters={settings.characters} useCoords={settings.useCoords} disabled={false} onChange={characters => patch({ characters })} onCoordsChange={useCoords => patch({ useCoords })} aspectRatio={resolution.width / resolution.height} />
       <div className="prompt-label negative-label"><label htmlFor="negative-prompt">负面提示词</label></div>
       <label className="toggle-row default-negative-row"><span>默认负面</span><input aria-label="默认负面提示词" type="checkbox" checked={settings.defaultNegative} onChange={e => patch({ defaultNegative: e.target.checked })} /><i className="switch" /></label>
@@ -289,11 +330,11 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     <div className="prompt-bottom"><button className="secondary upload-button" onClick={() => referenceFileRef.current?.click()} disabled={busy}><ImagePlus size={17} />参考 · 图生图<Plus size={15} /></button><button className="secondary upload-button" onClick={() => fileRef.current?.click()} disabled={busy}><Paintbrush size={17} />上传图片进行重绘<Plus size={15} /></button></div>
   </>;
   const settingsPanel = <>
-    <div className="panel-heading"><span><Settings2 size={16} />生成设置</span><button className="tool" title="恢复默认生成设置" aria-label="恢复默认生成设置" disabled={busy} onClick={() => { patch({ resolution: 'portrait', steps: 23, guidance: 7, seed: null, strength: DEFAULT_SETTINGS.strength, noise: DEFAULT_SETTINGS.noise }); setInpaintStrength(DEFAULT_SETTINGS.strength); }}><RotateCcw size={14} /></button><button className="tool mobile-only" aria-label="关闭设置面板" onClick={() => setMobilePanel(null)}><X size={18} /></button></div>
+    <div className="panel-heading"><span><Settings2 size={16} />生成设置</span><button className="tool" title="恢复默认生成设置" aria-label="恢复默认生成设置" disabled={busy} onClick={() => { patch({ resolution: 'portrait', useAnlas: false, steps: 23, guidance: 7, seed: null, strength: DEFAULT_SETTINGS.strength, noise: DEFAULT_SETTINGS.noise }); setInpaintStrength(DEFAULT_SETTINGS.strength); }}><RotateCcw size={14} /></button><button className="tool mobile-only" aria-label="关闭设置面板" onClick={() => setMobilePanel(null)}><X size={18} /></button></div>
     <div className="settings-scroll">
-      <div className="setting-label">图像尺寸</div>
-      <div className="resolution-list">{(Object.keys(RESOLUTIONS) as Resolution[]).map(key => { const r = RESOLUTIONS[key]; return <button key={key} disabled={busy || fitting} className={`resolution-card ${settings.resolution === key ? 'selected' : ''}`} onClick={() => { patch({ resolution: key }); if (mode === 'inpaint') setShowEditor(true); }}>
-        <span className={`aspect-icon ${key}`} /><span><strong>{r.name}</strong><small>{r.width} × {r.height}</small></span>{settings.resolution === key && <Check size={14} />}
+      {user.role === 'admin' && <div className="anlas-settings"><div className="anlas-balance"><strong>Anlas 积分</strong><b>{status.anlas?.total ?? '—'}</b></div><small>订阅 {status.anlas?.subscription ?? '—'} · 购买 {status.anlas?.purchased ?? '—'}</small><label className="toggle-row"><span>允许使用 Anlas</span><input aria-label="允许使用 Anlas" type="checkbox" checked={settings.useAnlas === true} disabled={busy} onChange={e => patch({ useAnlas: e.target.checked, ...(!e.target.checked && resolution.width * resolution.height > 1_048_576 ? { resolution: settings.resolution.toLowerCase().includes('landscape') ? 'landscape' : settings.resolution.toLowerCase().includes('square') ? 'square' : 'portrait' } : {}) })} /><i className="switch" /></label><p className="setting-hint">本次预计 {estimatedCost} Anlas · 普通尺寸优先使用 Opus 额度</p></div>}<div className="setting-label">图像尺寸</div>
+      <div className="resolution-list">{(Object.keys(RESOLUTIONS) as Resolution[]).filter(key => user.role === 'admin' || FREE_RESOLUTIONS.includes(key as typeof FREE_RESOLUTIONS[number])).map(key => { const r = RESOLUTIONS[key]; return <button key={key} disabled={busy || fitting} className={`resolution-card ${settings.resolution === key ? 'selected' : ''}`} onClick={() => { patch({ resolution: key, ...(r.width * r.height > 1_048_576 ? { useAnlas: true } : {}) }); if (mode === 'inpaint') setShowEditor(true); }}>
+        <span className={`aspect-icon ${key}`} /><span><strong>{r.name}</strong><small>{r.width} × {r.height}{r.width * r.height > 1_048_576 ? ' · Anlas' : ''}</small></span>{settings.resolution === key && <Check size={14} />}
       </button>; })}</div>
       <div className="setting-divider" />
       <div className="setting-label"><label htmlFor="steps">迭代步数</label><span>Steps</span></div>
@@ -309,7 +350,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
       <div className="fixed-setting"><span>生成数量 <small>Images</small></span><LockKeyhole size={13} /><strong>1 张</strong></div>
       {mode === 'inpaint' && <div className="inpaint-settings"><p className="setting-hint">{inpaintStrength === 1 ? '强度 1 会完全重画涂抹部分，不保留该部分原有结构。' : '以完整底图为上下文；强度越低，越保留涂抹部分的原有结构。'}</p><p className="setting-hint">边缘会柔化融合。修改分辨率会重新适配底图并清空蒙版。</p></div>}
     </div>
-    <div className="generate-area"><div className="generation-summary"><span>{resolution.width} × {resolution.height} · {settings.steps} steps</span></div><button className="primary generate-button" onClick={() => void generate()} disabled={!canGenerate} title={!status.ready ? status.message : !hasPrompt ? '请先填写提示词' : mode !== 'generate' && !baseImage ? '请先上传图片' : mode === 'inpaint' && !hasMask ? '请先绘制蒙版' : 'Ctrl + Enter'}>{busy ? <LoaderCircle size={19} className="spin" /> : <WandSparkles size={19} />}<span>{busy ? busyText : mode === 'inpaint' ? '生成局部重绘' : mode === 'img2img' ? '生成 图生图' : '生成图像'}</span>{!busy && <ArrowRight size={17} />}</button>{!status.ready && !busy && <p className="service-hint">{status.message}</p>}</div>
+    <div className="generate-area"><div className="generation-summary"><span>{resolution.width} × {resolution.height} · {settings.steps} steps{user.role === 'admin' ? ` · ${estimatedCost} Anlas` : ''}</span></div><button className="primary generate-button" onClick={() => void generate()} disabled={!canGenerate} title={!serviceReady ? status.message : !hasPrompt ? '请先填写提示词' : mode !== 'generate' && !baseImage ? '请先上传图片' : mode === 'inpaint' && !hasMask ? '请先绘制蒙版' : 'Ctrl + Enter'}>{busy ? <LoaderCircle size={19} className="spin" /> : <WandSparkles size={19} />}<span>{busy ? busyText : mode === 'inpaint' ? '生成局部重绘' : mode === 'img2img' ? '生成 图生图' : '生成图像'}</span>{!busy && <ArrowRight size={17} />}</button>{!serviceReady && !busy && <p className="service-hint">{status.message}</p>}</div>
   </>;
   const historyPanel = <>
     <div className="history-heading"><History size={16} /><span>历史</span><small>{entries.length}</small><button className="tool mobile-only" aria-label="关闭历史面板" onClick={() => setMobilePanel(null)}><X size={16} /></button></div>
@@ -320,7 +361,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     <input type="file" ref={fileRef} aria-label="上传重绘底图" className="hidden-input" accept="image/png,image/jpeg,image/webp" onChange={e => { const file = e.target.files?.[0]; if (file) void importFile(file); e.target.value = ''; }} />
     <input type="file" ref={referenceFileRef} aria-label="上传 图生图 参考图" className="hidden-input" accept="image/png,image/jpeg,image/webp" onChange={e => { const file = e.target.files?.[0]; if (file) void importFile(file, 'img2img'); e.target.value = ''; }} />
     <input type="file" ref={metadataFileRef} aria-label="上传图片导入元数据" className="hidden-input" accept="image/png,image/webp" onChange={e => { const file = e.target.files?.[0]; if (file) void importMetadata(file); e.target.value = ''; }} />
-    <header className="topbar"><a className="brand" href="/" aria-label="NovelAI 图像工作台"><Aperture size={24} /><strong>Novel<span>AI</span></strong><i /> <small>图像工作台</small></a><div className="topbar-right">{user.role === 'admin' && <button className="secondary manage-entry" onClick={onAdmin} disabled={busy}><ShieldCheck size={15} /><span>账号管理</span></button>}<div className="workspace-account" title={`${user.username} · ${user.role === 'admin' ? `NAI 官方 Opus 剩余额度 ${status.usagePercent === undefined ? '读取中' : `${Math.floor(status.usagePercent)}%`}` : `剩余 ${user.remaining} / ${user.quota} 张`}`}><span>{user.username}</span><small>{user.role === 'admin' ? `Opus 剩余 ${status.usagePercent === undefined ? '—' : `${Math.floor(status.usagePercent)}%`}` : `剩余 ${status.account?.remaining ?? user.remaining ?? 0} 张`}</small></div><button className="tool account-logout" aria-label="退出登录" title="退出登录" disabled={busy} onClick={onLogout}><LogOut size={16} /></button><button className="tool theme-toggle" aria-label={theme === 'white-pink' ? '切换黑粉主题' : '切换白粉主题'} title={theme === 'white-pink' ? '黑粉主题' : '白粉主题'} onClick={() => setTheme(t => t === 'white-pink' ? 'black-pink' : 'white-pink')}>{theme === 'white-pink' ? <Moon size={18} /> : <Sun size={18} />}</button><button className={`connection-status ${status.ready ? 'connected' : ''}`} title={status.message} onClick={() => void refreshStatus()} disabled={statusLoading}><i className={`dot ${status.ready ? 'green' : ''}`} /><span>{statusLoading ? '连接中' : status.ready ? '已连接' : status.configured ? '服务待就绪' : '等待连接'}</span>{status.usagePercent !== undefined && <small>{Math.floor(status.usagePercent)}%</small>}</button></div></header>
+    <header className="topbar"><a className="brand" href="/" aria-label="NovelAI 图像工作台"><Aperture size={24} /><strong>Novel<span>AI</span></strong><i /> <small>图像工作台</small></a><div className="topbar-right">{user.role === 'admin' && <button className="secondary manage-entry" onClick={onAdmin} disabled={busy}><ShieldCheck size={15} /><span>管理中心</span></button>}<div className="workspace-account" title={`${user.username} · ${user.role === 'admin' ? `NAI 官方 Opus 剩余额度 ${status.usagePercent === undefined ? '读取中' : `${Math.floor(status.usagePercent)}%`}` : `剩余 ${user.remaining} / ${user.quota} 张`}`}><span>{user.username}</span><small>{user.role === 'admin' ? `Opus ${status.usagePercent === undefined ? '—' : `${Math.floor(status.usagePercent)}%`} · Anlas ${status.anlas?.total ?? '—'}` : `剩余 ${status.account?.remaining ?? user.remaining ?? 0} 张`}</small></div><button className="tool account-logout" aria-label="退出登录" title="退出登录" disabled={busy} onClick={onLogout}><LogOut size={16} /></button><button className="tool theme-toggle" aria-label={theme === 'white-pink' ? '切换黑粉主题' : '切换白粉主题'} title={theme === 'white-pink' ? '黑粉主题' : '白粉主题'} onClick={() => setTheme(t => t === 'white-pink' ? 'black-pink' : 'white-pink')}>{theme === 'white-pink' ? <Moon size={18} /> : <Sun size={18} />}</button><button className={`connection-status ${status.ready || status.paidReady ? 'connected' : ''}`} title={status.message} onClick={() => void refreshStatus()} disabled={statusLoading}><i className={`dot ${status.ready || status.paidReady ? 'green' : ''}`} /><span>{statusLoading ? '连接中' : status.ready || status.paidReady ? '已连接' : status.configured ? '服务待就绪' : '等待连接'}</span>{status.usagePercent !== undefined && <small>{Math.floor(status.usagePercent)}%</small>}</button></div></header>
     <div className="workspace">
       <nav className="nav-rail"><button className={`rail-button ${mode === 'generate' ? 'active' : ''}`} title="文生图" aria-label="切换文生图" disabled={busy} onClick={() => { setMode('generate'); setMobilePanel(null); }}><Images size={21} /></button><button className={`rail-button ${mode === 'inpaint' ? 'active' : ''}`} title="局部重绘" aria-label="切换局部重绘" disabled={busy} onClick={() => { setMode('inpaint'); setShowEditor(true); }}><Paintbrush size={21} /></button><button className={`rail-button ${mode === 'img2img' ? 'active' : ''}`} title="图生图" aria-label="切换 图生图" disabled={busy} onClick={() => { setMode('img2img'); setShowEditor(true); }}><ImagePlus size={21} /></button><div className="rail-divider" /><button className="rail-button" title="上传图片" aria-label="上传底图" disabled={busy} onClick={() => fileRef.current?.click()}><Upload size={20} /></button><div className="rail-spacer" /><span className="rail-version">V5</span></nav>
       {!isMobile && <aside className="prompt-panel desktop-panel">{promptPanel}</aside>}
@@ -340,10 +381,10 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
           {mode === 'img2img' && !baseImage && <div className="empty-stage"><div className="empty-emblem"><ImagePlus size={47} strokeWidth={1} /></div><h1>参考 · 图生图</h1><button className="secondary empty-upload" onClick={() => referenceFileRef.current?.click()} disabled={busy}><Upload size={16} />上传参考图</button></div>}
           {mode === 'inpaint' && baseImage && <div className={`editor-container ${showEditor ? '' : 'hidden'}`}><MaskCanvas ref={maskRef} image={baseImage} width={resolution.width} height={resolution.height} disabled={busy || fitting} onChange={setHasMask} onViewResult={selected ? () => setShowEditor(false) : undefined} /></div>}
           {((mode === 'generate' && !selected) || (mode === 'inpaint' && !baseImage)) && <div className="empty-stage"><div className="empty-emblem"><Aperture size={47} strokeWidth={1} /><i /><i /></div><h1>{mode === 'inpaint' ? '局部重绘' : '文生图'}</h1>{mode === 'inpaint' && <button className="secondary empty-upload" onClick={() => fileRef.current?.click()} disabled={busy}><Upload size={16} />上传底图</button>}</div>}
-          {selected && (mode === 'generate' || !showEditor) && <div className="result-container"><ImageViewport src={selectedUrl!} alt="当前生成结果"><button className="image-expand tool" title="全屏预览" aria-label="全屏预览" onClick={() => setFullscreen(true)}><Expand size={17} /></button></ImageViewport><div className="result-meta"><span><i className="dot pink" />{modeName(selected.mode)}<i className="meta-separator" />{RESOLUTIONS[selected.settings.resolution].width} × {RESOLUTIONS[selected.settings.resolution].height}</span><span>{selected.settings.steps} steps · CFG {selected.settings.guidance}</span></div></div>}
-          {(busy || fitting) && <div className="working-overlay"><div><LoaderCircle className="spin" size={28} /><strong>{fitting ? '正在适配底图' : queuePosition > 0 ? busyText : mode === 'inpaint' ? '正在重绘选中区域' : '正在生成你的图像'}</strong></div></div>}
+          {selected && (mode === 'generate' || !showEditor) && <div className="result-container"><ImageViewport src={selectedUrl!} alt="当前生成结果"><button className="image-expand tool" title="全屏预览" aria-label="全屏预览" onClick={() => setFullscreen(true)}><Expand size={17} /></button></ImageViewport><div className="result-meta"><span><i className="dot pink" />{modeName(selected.mode)}<i className="meta-separator" />{selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width} × {selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height}</span><span>{selected.settings.steps} steps · CFG {selected.settings.guidance}</span></div></div>}
+          {(busy || fitting) && <div className="working-overlay"><div><LoaderCircle className="spin" size={28} /><strong>{fitting ? '正在适配底图' : queuePosition > 0 ? busyText : upscaling ? '正在原生放大图像' : mode === 'inpaint' ? '正在重绘选中区域' : '正在生成你的图像'}</strong></div></div>}
         </div>
-        {selected && (mode === 'generate' || !showEditor) && <div className="result-controls"><div className="result-actions"><button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected)}><Paintbrush size={15} />继续重绘</button><button className="secondary" disabled={busy} onClick={() => { restoreEntrySettings(selected); setNotice({ text: '已恢复这张图片的提示词和生成设置。', error: false }); }}><Copy size={15} />复制提示词</button><button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected, 'img2img')}><ImagePlus size={15} />用作参考图</button></div>{mode === 'inpaint' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>返回原蒙版编辑器<ArrowRight size={13} /></button>}{mode === 'img2img' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>查看参考图<ArrowRight size={13} /></button>}</div>}
+        {selected && (mode === 'generate' || !showEditor) && <div className="result-controls"><div className="result-actions">{user.role === 'admin' && upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height) !== null && <button className="secondary" disabled={busy || !status.paidReady} onClick={() => void upscale(selected)}><Expand size={15} />原生放大 2× · {upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height)} Anlas</button>}<button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected)}><Paintbrush size={15} />继续重绘</button><button className="secondary" disabled={busy} onClick={() => { restoreEntrySettings(selected); setNotice({ text: '已恢复这张图片的提示词和生成设置。', error: false }); }}><Copy size={15} />复制提示词</button><button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected, 'img2img')}><ImagePlus size={15} />用作参考图</button></div>{mode === 'inpaint' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>返回原蒙版编辑器<ArrowRight size={13} /></button>}{mode === 'img2img' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>查看参考图<ArrowRight size={13} /></button>}</div>}
       </main>
       {!isMobile && <><aside className="settings-panel desktop-panel">{settingsPanel}</aside><aside className="history-panel desktop-panel">{historyPanel}</aside></>}
     </div>

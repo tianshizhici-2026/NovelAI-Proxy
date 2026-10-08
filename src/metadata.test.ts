@@ -68,10 +68,10 @@ test('imports V4/V5 character prompts, negative captions, coordinates including 
 
 test('adapts unsupported generation parameters while importing seed without model or sampler', () => {
   const result = normalizeMetadata({ Comment: JSON.stringify({ ...comment, width: 1536, height: 1024, steps: 50, scale: 20, seed: 123, model: 'other', sampler: 'other' }) }, 1536, 1024);
-  assert.equal(result.settings.resolution, 'landscape');
+  assert.equal(result.settings.resolution, 'largeLandscape');
   assert.equal(result.settings.steps, 28);
   assert.equal(result.settings.guidance, 10);
-  assert.equal(result.notes.length, 3);
+  assert.equal(result.notes.length, 2);
   assert.equal(result.settings.seed, 123);
   assert.equal('model' in result.settings || 'sampler' in result.settings, false);
   assert.deepEqual(result.settings.characters, []);

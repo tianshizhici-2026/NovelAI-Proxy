@@ -17,6 +17,7 @@ with sync_playwright() as p:
     page = browser.new_page(viewport={'width': 1440, 'height': 1000})
     account = {'username': 'seed-test', 'role': 'admin', 'quota': 0, 'used': 0, 'totalUsed': 0, 'remaining': None, 'bannedUntil': 0, 'banned': False}
     page.route('**/api/auth/me', lambda r: r.fulfill(json={'account': account}))
+    page.route('**/api/admin/prompts', lambda route: route.fulfill(json={'prompts': []}))
     page.route('**/api/status', lambda r: r.fulfill(json={'configured': True, 'ready': True, 'usagePercent': 90, 'account': account}))
     page.route('**/api/queue/*', lambda r: r.fulfill(json={'state': 'running', 'position': 0, 'generating': True, 'waiting': 0, 'capacity': 5}))
     requests, errors = [], []

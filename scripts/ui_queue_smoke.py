@@ -24,6 +24,7 @@ async def main():
         errors, ids, submitted = [], [], []
         page.on('pageerror', lambda error: errors.append(str(error)))
         await page.route('**/api/auth/me', lambda route: route.fulfill(json={'account': account}))
+        await page.route('**/api/admin/prompts', lambda route: route.fulfill(json={'prompts': []}))
         await page.route('**/api/status', lambda route: route.fulfill(json={'configured': True, 'ready': True, 'usagePercent': 91, 'message': '已连接', 'account': account}))
         finish = asyncio.Event()
         job = {'state': 'waiting', 'position': 3, 'generating': True, 'waiting': 3, 'capacity': 5}

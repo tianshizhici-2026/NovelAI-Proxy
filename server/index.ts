@@ -6,9 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { AccountStore } from './accounts.js';
 import { ApiKeyStore } from './apiKeys.js';
+import { PromptStore } from './prompts.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const app = createApp({
+  prompts: new PromptStore(process.env.PROMPTS_FILE || path.join(root, 'data/prompts.json'), root),
   accounts: new AccountStore(process.env.ACCOUNTS_FILE || path.join(root, 'data/accounts.json')),
   keys: new ApiKeyStore(process.env.SETTINGS_FILE || path.join(root, 'data/settings.json'), process.env.NOVELAI_TOKEN),
   token: (process.env.NOVELAI_TOKEN ?? '').trim().replace(/^Bearer\s+/i, ''),

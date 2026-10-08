@@ -72,7 +72,7 @@ function featherMask(pixels: Buffer, width: number, height: number) {
 
 export async function prepareReference(image: string, width: number, height: number, background = '#ffffff') {
   const data = decodePng(image);
-  const meta = await sharp(data, { limitInputPixels: 1_048_576 }).metadata().catch(() => null);
+  const meta = await sharp(data, { limitInputPixels: 3_145_728 }).metadata().catch(() => null);
   if (!meta || meta.format !== 'png' || meta.width !== width || meta.height !== height || (meta.pages ?? 1) !== 1)
     throw new ApiError(400, '底图、参考图和蒙版尺寸必须与所选分辨率一致。', 'INVALID_IMAGE_SIZE');
   return sharp(data).flatten({ background }).png().toBuffer();
@@ -100,14 +100,14 @@ export async function extractImage(data: Uint8Array, width: number, height: numb
       const valid = /^image[^/]*\.(png|webp)$/i.test(file.name);
       if (!valid) return false;
       if (++imageCount > 1) throw new ApiError(502, '上游返回了多张图片。');
-      if (file.originalSize > 16 * 1024 * 1024) throw new ApiError(502, '上游图片过大。');
+      if (file.originalSize > 48 * 1024 * 1024) throw new ApiError(502, '上游图片过大。');
       return true;
     } });
     const entries = Object.values(files);
     if (entries.length !== 1) throw new ApiError(502, '上游没有返回单张有效图片。');
     result = entries[0];
   }
-  const meta = await sharp(result, { limitInputPixels: 1_048_576 }).metadata().catch(() => null);
+  const meta = await sharp(result, { limitInputPixels: 12_582_912 }).metadata().catch(() => null);
   if (!meta || !['png', 'webp'].includes(meta.format ?? '') || meta.width !== width || meta.height !== height)
     throw new ApiError(502, '上游图片格式或分辨率不匹配。', 'INVALID_UPSTREAM_IMAGE');
   return meta.format === 'png' ? Buffer.from(result) : sharp(result).png().toBuffer();

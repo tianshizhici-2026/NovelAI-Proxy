@@ -2,6 +2,7 @@ import { randomInt } from 'node:crypto';
 import { z } from 'zod';
 import { RESOLUTIONS } from '../shared/types.js';
 import { combinedNegativePrompt } from '../shared/negative.js';
+import { composedPrompt } from '../shared/prompts.js';
 
 const character = z.object({
   id: z.string().max(80), name: z.string().max(100),
@@ -11,16 +12,18 @@ const character = z.object({
 export const inputSchema = z.object({
   mode: z.enum(['generate', 'inpaint', 'img2img']),
   prompt: z.string().max(12000), negativePrompt: z.string().max(12000),
-  qualityTags: z.boolean(), resolution: z.enum(['portrait', 'landscape', 'square']),
+  qualityTags: z.boolean(), resolution: z.enum(Object.keys(RESOLUTIONS) as [keyof typeof RESOLUTIONS, ...(keyof typeof RESOLUTIONS)[]]),
   defaultNegative: z.boolean().default(false),
   steps: z.number().int().min(23).max(28), guidance: z.number().min(0.1).max(10),
   characters: z.array(character).max(22), useCoords: z.boolean(),
   strength: z.number().min(0).max(1),
   noise: z.number().min(0).max(1).default(0.2),
   seed: z.number().int().min(0).max(0xffffffff).nullable().default(null),
+  useAnlas: z.boolean().default(false),
+  promptModules: z.array(z.object({ id: z.string().max(80), category: z.enum(['artist', 'quality']), prompt: z.string().trim().min(1).max(6000), weight: z.number().min(0.1).max(3) }).strict()).max(100).default([]),
   image: z.string().max(12_000_000).optional(), mask: z.string().max(12_000_000).optional(),
 }).strict().superRefine((data, ctx) => {
-  if (!data.prompt.trim() && !data.characters.some(c => c.enabled && c.prompt.trim()))
+  if (!data.prompt.trim() && !data.characters.some(c => c.enabled && c.prompt.trim()) && !data.promptModules.length)
     ctx.addIssue({ code: 'custom', path: ['prompt'], message: '请填写场景或角色提示词。' });
   if (data.mode === 'inpaint' && (!data.image || !data.mask))
     ctx.addIssue({ code: 'custom', path: ['image'], message: '局部重绘需要底图和蒙版。' });
@@ -30,6 +33,8 @@ export const inputSchema = z.object({
     ctx.addIssue({ code: 'custom', path: ['image'], message: 'Image2Image 需要参考图，不能附带蒙版。' });
   if (data.mode === 'generate' && (data.image || data.mask))
     ctx.addIssue({ code: 'custom', path: ['image'], message: '文生图不能附带底图或蒙版。' });
+  if (composedPrompt(data.prompt, data.promptModules).length > 24000)
+    ctx.addIssue({ code: 'custom', path: ['prompt'], message: '拼装后的提示词过长，请减少模块。' });
 });
 export type ValidatedInput = z.infer<typeof inputSchema>;
 export class ApiError extends Error {
@@ -53,7 +58,7 @@ export function eligibleSubscription(raw: unknown, minUsagePercent = 1, now = Da
 
 export function buildPayload(input: ValidatedInput, images?: { image: string; mask?: string }) {
   const { width, height } = RESOLUTIONS[input.resolution];
-  const prompt = [input.prompt.trim(), input.qualityTags ? 'very aesthetic, masterpiece, no text' : ''].filter(Boolean).join(', ');
+  const prompt = [composedPrompt(input.prompt, input.promptModules), input.qualityTags ? 'very aesthetic, masterpiece, no text' : ''].filter(Boolean).join(', ');
   const negativePrompt = combinedNegativePrompt(input.negativePrompt, input.defaultNegative);
   const characters = input.characters.filter(c => c.enabled && c.prompt.trim());
   const seed = input.seed ?? randomInt(0, 0x1_0000_0000);
