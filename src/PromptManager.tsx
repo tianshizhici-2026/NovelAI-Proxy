@@ -3,6 +3,8 @@ import { ArrowLeft, ExternalLink, ImageIcon, Plus, Trash2 } from 'lucide-react';
 import { danbooruUrl, type PromptModule, type PromptCategory } from '../shared/prompts';
 import { accountJson } from './accountApi';
 import { imageToDataUrl } from './storage';
+import PromptSearch from './PromptSearch';
+import { searchPromptModules } from './promptSearch';
 
 export default function PromptManager() {
   const [items, setItems] = useState<PromptModule[]>([]);
@@ -13,6 +15,8 @@ export default function PromptManager() {
   const [busy, setBusy] = useState(false);
   const [image, setImage] = useState<File>();
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [queries, setQueries] = useState({ artist: '', quality: '' });
+  const search = searchPromptModules(items.filter(item => item.category === category), queries[category]);
   async function load() { const result = await accountJson<{ prompts: PromptModule[] }>('/api/admin/prompts'); setItems(result.prompts); }
   useEffect(() => { load().catch(error => setError(error.message)); }, []);
   function edit(item: PromptModule) { setEditing({ ...item }); setImage(undefined); setDeleteConfirm(false); setError(''); setNotice(''); }
@@ -38,7 +42,8 @@ export default function PromptManager() {
     </form> : <>
       <div className="module-manager-toolbar"><div className="admin-tabs"><button className={category === 'artist' ? 'active' : ''} onClick={() => setCategory('artist')}>画师串</button><button className={category === 'quality' ? 'active' : ''} onClick={() => setCategory('quality')}>质量风格</button></div><button className="primary" onClick={() => edit({ id: '', category, name: '', prompt: '', url: danbooruUrl('') })}><Plus size={14} />新增提示词</button></div>
       <label className="module-import secondary">导入 txt<input type="file" accept=".txt,text/plain" disabled={busy} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; void run(async () => { if (file.size > 2_000_000) throw new Error('txt 最大 2 MB。'); const result = await accountJson<{ added: number; prompts: PromptModule[] }>('/api/admin/prompts/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category, text: await file.text() }) }); setItems(result.prompts); setNotice(`已导入 ${result.added} 条提示词。`); }); }} /></label><p className="admin-form-hint">每行一个模块；也支持“名称、提示词、URL”以 Tab 分隔。新添加的提示词权重为 0.8。</p>
-      <div className="module-manager-list">{items.filter(item => item.category === category).map(item => <div className="module-manager-item" key={item.id}><button onClick={() => edit(item)}>{item.preview ? <img src={`/api/admin/prompts/${item.id}/preview?v=${item.preview}`} alt={item.name} /> : <span className="module-placeholder"><ImageIcon size={20} /></span>}<span><strong>{item.name}</strong><small>{item.prompt}</small></span></button><a className="tool" href={item.url} target="_blank" rel="noopener noreferrer" aria-label={`Danbooru ${item.name}`}><ExternalLink size={16} /></a></div>)}{!items.some(item => item.category === category) && <p className="account-card admin-form-hint">尚无提示词，可新增或导入 txt。</p>}</div>
+      <PromptSearch label="搜索管理提示词" query={queries[category]} onChange={query => setQueries(current => ({ ...current, [category]: query }))} count={search.items.length} error={search.error} />
+      <div className="module-manager-list">{search.items.map(item => <div className="module-manager-item" key={item.id}><button onClick={() => edit(item)}>{item.preview ? <img src={`/api/admin/prompts/${item.id}/preview?v=${item.preview}`} alt={item.name} /> : <span className="module-placeholder"><ImageIcon size={20} /></span>}<span><strong>{item.name}</strong><small>{item.prompt}</small></span></button><a className="tool" href={item.url} target="_blank" rel="noopener noreferrer" aria-label={`Danbooru ${item.name}`}><ExternalLink size={16} /></a></div>)}{!search.items.length && !search.error && <p className="account-card admin-form-hint">{queries[category] ? '没有匹配的提示词。' : '尚无提示词，可新增或导入 txt。'}</p>}</div>
     </>}
   </section>;
 }
