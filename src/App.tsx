@@ -7,13 +7,13 @@ import Characters from './Characters';
 import MaskCanvas, { type MaskHandle } from './MaskCanvas';
 import PromptSheet from './PromptSheet';
 import ImageViewport from './ImageViewport';
-import { importImageMetadata, pngMetadata } from './metadata';
+import { importImageMetadata, modularizeSettings, pngMetadata } from './metadata';
 import { newId } from './id';
 import { clearHistory, deleteHistory, downloadBlob, fitImage, imageToDataUrl, loadHistory, saveHistory } from './storage';
 import type { AccountView } from '../shared/accounts';
-import { accountFetch } from './accountApi';
+import { accountFetch, accountJson } from './accountApi';
 import PromptModules from './PromptModules';
-import { defaultQualitySelection, type SelectedPrompt } from '../shared/prompts';
+import { composedPrompt, defaultQualitySelection, type PromptModule, type SelectedPrompt } from '../shared/prompts';
 import { FREE_RESOLUTIONS } from '../shared/types';
 import { generationAnlas, upscaleAnlas } from '../shared/anlas';
 
@@ -31,7 +31,7 @@ function initialSettings(draftKey: string): Settings {
         noise: Math.min(1, Math.max(0, Number.isFinite(saved.noise) ? saved.noise : DEFAULT_SETTINGS.noise)),
         seed: Number.isInteger(saved.seed) && saved.seed >= 0 && saved.seed <= 0xffffffff ? saved.seed : null,
         useAnlas: saved.useAnlas === true,
-        promptModules: Array.isArray(saved.promptModules) ? saved.promptModules.filter((m: SelectedPrompt) => m && typeof m.id === 'string' && ['artist', 'quality'].includes(m.category) && typeof m.prompt === 'string' && m.prompt.length <= 6000 && Number.isFinite(m.weight) && m.weight >= 0.1 && m.weight <= 3).slice(0, 100) : undefined,
+        promptModules: Array.isArray(saved.promptModules) ? saved.promptModules.filter((m: SelectedPrompt) => m && typeof m.id === 'string' && ['artist', 'quality'].includes(m.category) && typeof m.prompt === 'string' && m.prompt.length <= 6000 && Number.isFinite(m.weight) && m.weight >= 0.1).slice(0, 100) : undefined,
         resolution: saved.resolution in RESOLUTIONS ? saved.resolution : 'portrait',
         steps: Math.min(28, Math.max(23, Math.round(Number(saved.steps) || 23))),
         guidance: Math.min(10, Math.max(0.1, Number(saved.guidance) || 7)),
@@ -77,7 +77,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   }, [theme]);
   function allowedSettings(s: Settings): Settings {
     if (user.role === 'admin') return s.qualityTags ? { ...s, qualityTags: false, promptModules: [...(s.promptModules ?? []), ...defaultQualitySelection().filter(item => !s.promptModules?.some(current => current.prompt === item.prompt))] } : s;
-    return { ...s, useAnlas: false, promptModules: [], resolution: FREE_RESOLUTIONS.includes(s.resolution as typeof FREE_RESOLUTIONS[number]) ? s.resolution : s.resolution.toLowerCase().includes('landscape') ? 'landscape' : s.resolution.toLowerCase().includes('square') ? 'square' : 'portrait' };
+    return { ...s, prompt: s.promptModules?.length ? composedPrompt(s.prompt, s.promptModules) : s.prompt, useAnlas: false, promptModules: [], resolution: FREE_RESOLUTIONS.includes(s.resolution as typeof FREE_RESOLUTIONS[number]) ? s.resolution : s.resolution.toLowerCase().includes('landscape') ? 'landscape' : s.resolution.toLowerCase().includes('square') ? 'square' : 'portrait' };
   }
   const [settings, setSettings] = useState<Settings>(() => {
     const saved = initialSettings(draftKey);
@@ -124,8 +124,13 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   const estimatedCost = generationAnlas({ ...settings, strength: mode === 'inpaint' ? inpaintStrength : settings.strength }, mode, status.ready);
   const canGenerate = serviceReady && !busy && !fitting && !importing && hasPrompt && (mode === 'generate' || (!!baseImage && (mode === 'img2img' || hasMask)));
   const patch = (change: Partial<Settings>) => setSettings(s => allowedSettings({ ...s, ...change }));
-  function restoreEntrySettings(entry: HistoryEntry, reuseSeed = true) {
-    setSettings(current => allowedSettings(structuredClone({ ...DEFAULT_SETTINGS, ...entry.settings,
+  async function importLibrary() {
+    return user.role === 'admin' ? (await accountJson<{ prompts: PromptModule[] }>('/api/admin/prompts')).prompts : undefined;
+  }
+  async function restoreEntrySettings(entry: HistoryEntry, reuseSeed = true) {
+    const library = await importLibrary();
+    const restored = library ? modularizeSettings(entry.settings, library) : entry.settings;
+    setSettings(current => allowedSettings(structuredClone({ ...DEFAULT_SETTINGS, ...restored,
       seed: reuseSeed ? entry.settings.seed : null,
       strength: entry.mode === 'img2img' ? entry.settings.strength : current.strength,
       noise: entry.mode === 'img2img' ? entry.settings.noise : current.noise,
@@ -199,8 +204,9 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
       if (image.width * image.height > 40_000_000) throw new Error();
       const ratio = image.width / image.height;
       const closest = (Object.keys(RESOLUTIONS) as Resolution[]).sort((a, b) => Math.abs(Math.log(ratio / (RESOLUTIONS[a].width / RESOLUTIONS[a].height))) - Math.abs(Math.log(ratio / (RESOLUTIONS[b].width / RESOLUTIONS[b].height))))[0];
+      const library = target === 'img2img' ? await importLibrary() : undefined;
       const metadata = target === 'img2img' && ['image/png', 'image/webp'].includes(file.type)
-        ? await importImageMetadata(file).catch(() => null) : null;
+        ? await importImageMetadata(file, library).catch(() => null) : null;
       patch({ resolution: closest, ...metadata?.settings, seed: null }); setRandomSeed(nextRandomSeed()); setBaseSource(source); setMode(target); setShowEditor(true); setMobilePanel(null);
       setNotice({ text: metadata ? `参考图已载入，并覆盖提示词、角色和生成参数。${metadata.notes.join('')}` : target === 'img2img' ? '参考图已载入，可调整 Strength 和 Noise。' : '底图已载入。', error: false });
     } catch { setNotice({ text: '图片读取失败，或像素尺寸过大。', error: true }); }
@@ -210,7 +216,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     if (busyRef.current || importingRef.current) return;
     importingRef.current = true; setImporting(true);
     try {
-      const result = await importImageMetadata(file);
+      const result = await importImageMetadata(file, await importLibrary());
       patch(result.settings); setMode('generate');
       setNotice({ text: `已导入提示词、角色和生成设置。${result.notes.join('')}`, error: false });
     } catch (error) {
@@ -267,11 +273,13 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   }
   async function useForInpaint(entry: HistoryEntry, target: 'inpaint' | 'img2img' = 'inpaint') {
     if (busy) return;
-    const source = await imageToDataUrl(entry.blob);
-    restoreEntrySettings(entry, false);
-    setRandomSeed(nextRandomSeed());
-    if (target === 'inpaint' && entry.mode !== 'inpaint') setInpaintStrength(DEFAULT_SETTINGS.strength);
-    setBaseSource(source); setMode(target); setShowEditor(true);
+    try {
+      const source = await imageToDataUrl(entry.blob);
+      await restoreEntrySettings(entry, false);
+      setRandomSeed(nextRandomSeed());
+      if (target === 'inpaint' && entry.mode !== 'inpaint') setInpaintStrength(DEFAULT_SETTINGS.strength);
+      setBaseSource(source); setMode(target); setShowEditor(true);
+    } catch (error) { setNotice({ text: error instanceof Error ? error.message : '读取图片和提示词失败。', error: true }); }
   }
   async function upscale(entry: HistoryEntry) {
     if (busyRef.current || importingRef.current || user.role !== 'admin') return;
@@ -384,7 +392,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
           {selected && (mode === 'generate' || !showEditor) && <div className="result-container"><ImageViewport src={selectedUrl!} alt="当前生成结果"><button className="image-expand tool" title="全屏预览" aria-label="全屏预览" onClick={() => setFullscreen(true)}><Expand size={17} /></button></ImageViewport><div className="result-meta"><span><i className="dot pink" />{modeName(selected.mode)}<i className="meta-separator" />{selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width} × {selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height}</span><span>{selected.settings.steps} steps · CFG {selected.settings.guidance}</span></div></div>}
           {(busy || fitting) && <div className="working-overlay"><div><LoaderCircle className="spin" size={28} /><strong>{fitting ? '正在适配底图' : queuePosition > 0 ? busyText : upscaling ? '正在原生放大图像' : mode === 'inpaint' ? '正在重绘选中区域' : '正在生成你的图像'}</strong></div></div>}
         </div>
-        {selected && (mode === 'generate' || !showEditor) && <div className="result-controls"><div className="result-actions">{user.role === 'admin' && upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height) !== null && <button className="secondary" disabled={busy || !status.paidReady} onClick={() => void upscale(selected)}><Expand size={15} />原生放大 2× · {upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height)} Anlas</button>}<button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected)}><Paintbrush size={15} />继续重绘</button><button className="secondary" disabled={busy} onClick={() => { restoreEntrySettings(selected); setNotice({ text: '已恢复这张图片的提示词和生成设置。', error: false }); }}><Copy size={15} />复制提示词</button><button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected, 'img2img')}><ImagePlus size={15} />用作参考图</button></div>{mode === 'inpaint' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>返回原蒙版编辑器<ArrowRight size={13} /></button>}{mode === 'img2img' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>查看参考图<ArrowRight size={13} /></button>}</div>}
+        {selected && (mode === 'generate' || !showEditor) && <div className="result-controls"><div className="result-actions">{user.role === 'admin' && upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height) !== null && <button className="secondary" disabled={busy || !status.paidReady} onClick={() => void upscale(selected)}><Expand size={15} />原生放大 2× · {upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height)} Anlas</button>}<button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected)}><Paintbrush size={15} />继续重绘</button><button className="secondary" disabled={busy} onClick={() => void restoreEntrySettings(selected).then(() => setNotice({ text: '已恢复这张图片的提示词和生成设置。', error: false })).catch(error => setNotice({ text: error instanceof Error ? error.message : '提示词读取失败。', error: true }))}><Copy size={15} />复制提示词</button><button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected, 'img2img')}><ImagePlus size={15} />用作参考图</button></div>{mode === 'inpaint' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>返回原蒙版编辑器<ArrowRight size={13} /></button>}{mode === 'img2img' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>查看参考图<ArrowRight size={13} /></button>}</div>}
       </main>
       {!isMobile && <><aside className="settings-panel desktop-panel">{settingsPanel}</aside><aside className="history-panel desktop-panel">{historyPanel}</aside></>}
     </div>

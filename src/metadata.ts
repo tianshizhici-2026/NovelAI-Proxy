@@ -1,7 +1,7 @@
 import { pngMetadata, decompressMetadata as decompress } from '../shared/png';
 export { pngMetadata } from '../shared/png';
 import { RESOLUTIONS, type Character, type Resolution, type Settings } from '../shared/types';
-import type { SelectedPrompt } from '../shared/prompts';
+import { DEFAULT_QUALITY_MODULES, extractPromptModules, roundedPromptWeight, type PromptModule, type SelectedPrompt } from '../shared/prompts';
 import { splitNegativePrompt } from '../shared/negative';
 import { newId } from './id';
 
@@ -91,7 +91,12 @@ export function stealthMetadata(pixels: Uint8ClampedArray, width: number, height
   return json(decoder.decode(magic === 'stealth_pngcomp' ? decompress(data, true) : data));
 }
 
-export function normalizeMetadata(raw: ObjectData, width: number, height: number): MetadataImport {
+export function modularizeSettings<T extends Partial<Settings>>(settings: T, library: PromptModule[]): T {
+  const source = [settings.prompt ?? '', settings.qualityTags ? DEFAULT_QUALITY_MODULES.slice(0, 3).map(item => item.prompt).join(', ') : ''].filter(Boolean).join(', ');
+  const result = extractPromptModules(source, library, settings.promptModules);
+  return { ...settings, prompt: result.prompt, promptModules: result.modules, qualityTags: false };
+}
+export function normalizeMetadata(raw: ObjectData, width: number, height: number, library?: PromptModule[]): MetadataImport {
   let data = 'Comment' in raw ? json(raw.Comment) : raw;
   if ('Comment' in data) data = json(data.Comment);
   const positive = object(data.v4_prompt_original ?? data.v4_prompt);
@@ -126,8 +131,8 @@ export function normalizeMetadata(raw: ObjectData, width: number, height: number
     qualityTags: typeof data.qualityToggle === 'boolean' ? data.qualityToggle : typeof data.quality_tags === 'boolean' ? data.quality_tags : false,
     promptModules: Array.isArray(data.novelai_proxy_modules) ? data.novelai_proxy_modules.slice(0, 100).flatMap(value => {
       const item = object(value);
-      if (typeof item.id !== 'string' || item.id.length > 80 || !['artist', 'quality'].includes(String(item.category)) || typeof item.prompt !== 'string' || !item.prompt.trim() || item.prompt.length > 6000 || typeof item.weight !== 'number' || !Number.isFinite(item.weight) || item.weight < 0.1 || item.weight > 3) return [];
-      return [item as SelectedPrompt];
+      if (typeof item.id !== 'string' || item.id.length > 80 || !['artist', 'quality'].includes(String(item.category)) || typeof item.prompt !== 'string' || !item.prompt.trim() || item.prompt.length > 6000 || typeof item.weight !== 'number' || !Number.isFinite(item.weight)) return [];
+      return [{ id: item.id, category: item.category, prompt: item.prompt, weight: roundedPromptWeight(item.weight) } as SelectedPrompt];
     }) : [],
   };
   const steps = number(data.steps);
@@ -155,10 +160,10 @@ export function normalizeMetadata(raw: ObjectData, width: number, height: number
     settings.useAnlas = target.width * target.height > 1_048_576;
     if (w !== target.width || h !== target.height) notes.push(`原图 ${w} × ${h}，已适配为 ${target.width} × ${target.height}。`);
   }
-  return { settings, notes };
+  return { settings: library ? modularizeSettings(settings, library) : settings, notes };
 }
 
-export async function importImageMetadata(file: File): Promise<MetadataImport> {
+export async function importImageMetadata(file: File, library?: PromptModule[]): Promise<MetadataImport> {
   if (file.size > 20 * 1024 * 1024) throw new Error('请选择不超过 20 MB 的 PNG 或 WebP 图片。');
   const bytes = new Uint8Array(await file.arrayBuffer());
   const isPng = [137, 80, 78, 71, 13, 10, 26, 10].every((b, i) => bytes[i] === b);
@@ -171,13 +176,13 @@ export async function importImageMetadata(file: File): Promise<MetadataImport> {
     const width = image.naturalWidth, height = image.naturalHeight;
     if (width * height > 40_000_000) throw new Error('图片像素尺寸过大。');
     // Prefer editable file metadata; use alpha metadata for stripped files.
-    try { return normalizeMetadata(raw, width, height); } catch { /* Try hidden metadata. */ }
+    try { return normalizeMetadata(raw, width, height, library); } catch { /* Try hidden metadata. */ }
     const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error('浏览器无法读取图片元数据。');
     ctx.drawImage(image, 0, 0);
     const hidden = stealthMetadata(ctx.getImageData(0, 0, width, height).data, width, height);
-    if (hidden) return normalizeMetadata(hidden, width, height);
+    if (hidden) return normalizeMetadata(hidden, width, height, library);
     throw new Error('这张图片没有可导入的 NovelAI 元数据。请使用保留元数据的原始 PNG 或 WebP 图片。');
   } finally { URL.revokeObjectURL(url); }
 }
