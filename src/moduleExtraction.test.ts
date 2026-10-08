@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { composedPrompt, danbooruUrl, DEFAULT_QUALITY_MODULES, extractPromptModules, parsePromptText, roundedPromptWeight, type PromptModule } from '../shared/prompts';
+import { composedPrompt, danbooruUrl, DEFAULT_QUALITY_MODULES, extractPromptModules, parsePromptText, quoteNumericTags, roundedPromptWeight, type PromptModule } from '../shared/prompts';
 import { modularizeSettings, normalizeMetadata } from './metadata';
 import { DEFAULT_SETTINGS } from '../shared/types';
 import { buildPayload, inputSchema } from '../server/policy';
@@ -8,6 +8,42 @@ import { buildPayload, inputSchema } from '../server/policy';
 const artist: PromptModule = { id: 'artist-current', category: 'artist', name: 'Example', prompt: 'artist:chen bin', url: 'https://example.com' };
 const artistTwo: PromptModule = { ...artist, id: 'artist-two', prompt: 'artist:nahaki' };
 const library = [artist, artistTwo, ...DEFAULT_QUALITY_MODULES];
+
+test('numeric quality modules quote the whole tag and quoted years import into the original preset', () => {
+  const year: PromptModule = { ...artist, category: 'quality', id: 'year-2025', prompt: 'year 2025' };
+  for (const source of ['year 2025', '"year 2025"', 'year2025', '"year2025"']) {
+    const restored = normalizeMetadata({ Comment: { prompt: `1girl, .8::${source}::`, qualityToggle: false } }, 1024, 1024, [year]);
+    assert.equal(restored.settings.prompt, '1girl');
+    assert.deepEqual(restored.settings.promptModules, [{ id: year.id, category: 'quality', prompt: year.prompt, weight: .8 }]);
+    const payload = buildPayload(inputSchema.parse({ ...DEFAULT_SETTINGS, ...restored.settings, mode: 'generate' }));
+    assert.equal(payload.input, '1girl, 0.8::"year 2025"::');
+    assert.equal(payload.parameters.v4_prompt.caption.base_caption, payload.input);
+  }
+  const selected = [{ id: year.id, category: year.category, prompt: '"year 2025"', weight: .8 }];
+  assert.equal(composedPrompt('1girl', selected), '1girl, 0.8::"year 2025"::');
+  assert.equal(extractPromptModules('forest', [year], selected).modules[0].prompt, 'year 2025');
+  const preset = { ...year, prompt: '"year 2025"' };
+  assert.equal(extractPromptModules('.8::year 2025::', [preset]).modules[0].id, preset.id);
+  assert.equal(composedPrompt('forest', [{ ...selected[0], prompt: 'year 2025, year 2026, 1990s (style)' }]),
+    'forest, 0.8::"year 2025", "year 2026", "1990s (style)"::');
+});
+test('handwritten numeric endings are protected in positive, negative and character prompts in all modes', () => {
+  for (const mode of ['generate', 'img2img', 'inpaint'] as const) {
+    const payload = buildPayload(inputSchema.parse({ ...DEFAULT_SETTINGS, mode, qualityTags: false, defaultNegative: false,
+      prompt: '1girl, 2boys, .8::year2025::', negativePrompt: '-.5::year 2026::',
+      characters: [{ id: 'character', name: 'Character', enabled: true, prompt: '1girl, .6::year 2025::', negativePrompt: '-.4::year2026::', x: .5, y: .5 }],
+      ...(mode === 'generate' ? {} : { image: 'fixture-image', ...(mode === 'inpaint' ? { mask: 'fixture-mask' } : {}) }),
+    }));
+    assert.equal(payload.input, '1girl, 2boys, .8::"year2025"::');
+    assert.equal(payload.parameters.negative_prompt, '-.5::"year 2026"::');
+    assert.equal(payload.parameters.v4_prompt.caption.char_captions[0].char_caption, '1girl, .6::"year 2025"::');
+    assert.equal(payload.parameters.v4_negative_prompt.caption.char_captions[0].char_caption, '-.4::"year2026"::');
+  }
+  const protectedText = quoteNumericTags('1girl, 2boys, .8::year 2025::, artist:docy520, -5::artist collaboration::');
+  assert.equal(protectedText, '1girl, 2boys, .8::"year 2025"::, artist:"docy520", -5::artist collaboration::');
+  assert.equal(quoteNumericTags(protectedText), protectedText);
+  assert.equal(quoteNumericTags('1girl, 2boys, queued-1, year2025'), '1girl, 2boys, queued-1, "year2025"');
+});
 
 test('negative suppression presets retain their sign in text import, metadata and generation', () => {
   const parsed = parsePromptText('-5::artist collaboration,::\n抑制画师协作\t-5::artist collaboration::', 'quality');

@@ -20,21 +20,26 @@ export function defaultQualitySelection(): SelectedPrompt[] {
   return DEFAULT_QUALITY_MODULES.slice(0, 3).map(({ id, category, prompt }) => ({ id, category, prompt, weight: 0.8 }));
 }
 export function composedPrompt(prompt: string, modules: SelectedPrompt[] = []) {
-  return [...modules.filter(m => m.category === 'artist').map(weighted), prompt.trim(),
+  return [...modules.filter(m => m.category === 'artist').map(weighted), quoteNumericTags(prompt.trim()),
     ...modules.filter(m => m.category === 'quality').map(weighted)].filter(Boolean).join(', ');
 }
 function weighted(module: SelectedPrompt) {
-  let prompt = module.prompt.trim();
-  if (module.category === 'artist') {
-    // Digits next to the closing weight marker confuse the upstream parser.
-    for (const token of promptTokens(prompt).reverse()) {
-      const name = artistName(token.text);
-      if (name !== undefined && /\d/.test(name) && !/^artist:{1,2}\s*"/i.test(token.text)) {
-        prompt = prompt.slice(0, token.start) + `artist:${JSON.stringify(name)}` + prompt.slice(token.end);
-      }
+  return `${module.weight.toFixed(1)}::${quoteNumericTags(module.prompt.trim(), true)}::`;
+}
+export function quoteNumericTags(prompt: string, allNumeric = false) {
+  // Protect numeric tag text from being read as a weight next to ::.
+  for (const token of promptTokens(prompt).reverse()) {
+    const name = artistName(token.text);
+    let replacement: string | undefined;
+    if (name !== undefined) {
+      if (/\d/.test(name) && !/^artist:{1,2}\s*"/i.test(token.text)) replacement = `artist:${JSON.stringify(name)}`;
+    } else if ((allNumeric ? /\d/.test(token.text) : /\d$/.test(token.text) &&
+      (/^\s*::/.test(prompt.slice(token.end)) || /^year[\s_]*\d+$/i.test(token.text))) && !/^"(?:\\.|[^"\\])*"$/.test(token.text)) {
+      replacement = JSON.stringify(token.text);
     }
+    if (replacement !== undefined) prompt = prompt.slice(0, token.start) + replacement + prompt.slice(token.end);
   }
-  return `${module.weight.toFixed(1)}::${prompt}::`;
+  return prompt;
 }
 export function roundedPromptWeight(weight: number) {
   const magnitude = Math.abs(weight);
@@ -83,13 +88,16 @@ function promptTokens(prompt: string): PromptToken[] {
 function artistName(prompt: string): string | undefined {
   const match = /^artist:{1,2}\s*(.+)$/i.exec(prompt.trim());
   if (!match) return undefined;
-  return match[1].replace(/^"((?:\\.|[^"\\])*)"$/, '$1').replace(/\\(["\\])/g, '$1');
+  return unquoteTag(match[1]);
+}
+function unquoteTag(prompt: string) {
+  return prompt.replace(/^"((?:\\.|[^"\\])*)"$/, '$1').replace(/\\(["\\])/g, '$1');
 }
 function tagKey(prompt: string) {
-  const name = artistName(prompt);
-  return (name === undefined ? prompt.trim() : `artist:${name}`).replace(/\\([(),{}\[\]])/g, '$1')
+  const text = unquoteTag(prompt.trim()), name = artistName(text);
+  return (name === undefined ? text : `artist:${name}`).replace(/\\([(),{}\[\]])/g, '$1')
     .replace(/^artist:\(([^()]+)\)$/i, 'artist:$1')
-    .replace(/_/g, ' ').replace(/\s+/g, ' ').replace(/^artist:\s*/i, 'artist:').toLowerCase();
+    .replace(/_/g, ' ').replace(/\s+/g, ' ').replace(/^artist:\s*/i, 'artist:').replace(/^year\s*(\d{4})$/i, 'year $1').toLowerCase();
 }
 function sameWeight(a: number, b: number) { return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b)); }
 export function extractPromptModules(prompt: string, library: PromptModule[], previous: SelectedPrompt[] = []) {

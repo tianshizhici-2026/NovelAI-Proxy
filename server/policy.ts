@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { z } from 'zod';
 import { RESOLUTIONS } from '../shared/types.js';
 import { combinedNegativePrompt } from '../shared/negative.js';
-import { composedPrompt } from '../shared/prompts.js';
+import { composedPrompt, quoteNumericTags } from '../shared/prompts.js';
 
 const character = z.object({
   id: z.string().max(80), name: z.string().max(100),
@@ -59,11 +59,11 @@ export function eligibleSubscription(raw: unknown, minUsagePercent = 1, now = Da
 export function buildPayload(input: ValidatedInput, images?: { image: string; mask?: string }) {
   const { width, height } = RESOLUTIONS[input.resolution];
   const prompt = [composedPrompt(input.prompt, input.promptModules), input.qualityTags ? 'very aesthetic, masterpiece, no text' : ''].filter(Boolean).join(', ');
-  const negativePrompt = combinedNegativePrompt(input.negativePrompt, input.defaultNegative);
+  const negativePrompt = quoteNumericTags(combinedNegativePrompt(input.negativePrompt, input.defaultNegative));
   const characters = input.characters.filter(c => c.enabled && c.prompt.trim());
   const seed = input.seed ?? randomInt(0, 0x1_0000_0000);
   const captions = (negative: boolean) => characters.map(c => ({
-    char_caption: negative ? c.negativePrompt : c.prompt,
+    char_caption: quoteNumericTags(negative ? c.negativePrompt : c.prompt),
     centers: [{ x: c.x, y: c.y }],
   }));
   const imageParameters: { image?: string; mask?: string; extra_noise_seed?: number; strength?: number; noise?: number; color_correct?: boolean; img2img?: { strength: number; color_correct: boolean } } = images ? {
