@@ -10,8 +10,8 @@ export const QUALITY_PROMPTS = [
   'flat color', 'limited palette', 'vibrant colors', 'pastel colors', 'monochrome',
 ];
 export function danbooruUrl(prompt: string) {
-  const tag = prompt.trim().replace(/^artist:/i, '').replace(/ /g, '_');
-  return `https://danbooru.donmai.us/posts?tags=${encodeURIComponent(tag)}`;
+  const tag = artistName(prompt) ?? prompt.trim();
+  return `https://danbooru.donmai.us/posts?tags=${encodeURIComponent(tag.replace(/ /g, '_'))}`;
 }
 export const DEFAULT_QUALITY_MODULES: PromptModule[] = QUALITY_PROMPTS.map((prompt, index) => ({
   id: `quality-${index}`, category: 'quality', name: prompt, prompt, url: danbooruUrl(prompt),
@@ -23,7 +23,19 @@ export function composedPrompt(prompt: string, modules: SelectedPrompt[] = []) {
   return [...modules.filter(m => m.category === 'artist').map(weighted), prompt.trim(),
     ...modules.filter(m => m.category === 'quality').map(weighted)].filter(Boolean).join(', ');
 }
-function weighted(module: SelectedPrompt) { return `${module.weight.toFixed(1)}::${module.prompt.trim()}::`; }
+function weighted(module: SelectedPrompt) {
+  let prompt = module.prompt.trim();
+  if (module.category === 'artist') {
+    // Digits next to the closing weight marker confuse the upstream parser.
+    for (const token of promptTokens(prompt).reverse()) {
+      const name = artistName(token.text);
+      if (name !== undefined && /\d/.test(name) && !/^artist:{1,2}\s*"/i.test(token.text)) {
+        prompt = prompt.slice(0, token.start) + `artist:${JSON.stringify(name)}` + prompt.slice(token.end);
+      }
+    }
+  }
+  return `${module.weight.toFixed(1)}::${prompt}::`;
+}
 export function roundedPromptWeight(weight: number) {
   const rounded = Math.round((weight + Number.EPSILON * Math.max(1, Math.abs(weight))) * 10) / 10;
   return Math.max(0.1, Number.isFinite(rounded) ? rounded : weight);
@@ -40,6 +52,14 @@ function promptTokens(prompt: string): PromptToken[] {
   }
   for (let i = 0; i < prompt.length;) {
     if (prompt[i] === '\\') { textStarted = true; i += 2; continue; }
+    if (prompt[i] === '"') {
+      let end = i + 1;
+      for (; end < prompt.length; end++) {
+        if (prompt[end] === '\\') end++;
+        else if (prompt[end] === '"') break;
+      }
+      if (end < prompt.length) { textStarted = true; i = end + 1; continue; }
+    }
     const emphasis = !textStarted ? /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)::/.exec(prompt.slice(i)) : null;
     if (emphasis) {
       flush(i); numeric = Number(emphasis[0].slice(0, -2)); brackets = 0;
@@ -59,8 +79,14 @@ function promptTokens(prompt: string): PromptToken[] {
   }
   flush(prompt.length); return tokens;
 }
+function artistName(prompt: string): string | undefined {
+  const match = /^artist:{1,2}\s*(.+)$/i.exec(prompt.trim());
+  if (!match) return undefined;
+  return match[1].replace(/^"((?:\\.|[^"\\])*)"$/, '$1').replace(/\\(["\\])/g, '$1');
+}
 function tagKey(prompt: string) {
-  return prompt.trim().replace(/\\([(),{}\[\]])/g, '$1').replace(/^artist::/i, 'artist:')
+  const name = artistName(prompt);
+  return (name === undefined ? prompt.trim() : `artist:${name}`).replace(/\\([(),{}\[\]])/g, '$1')
     .replace(/^artist:\(([^()]+)\)$/i, 'artist:$1')
     .replace(/_/g, ' ').replace(/\s+/g, ' ').replace(/^artist:\s*/i, 'artist:').toLowerCase();
 }
@@ -77,7 +103,9 @@ export function extractPromptModules(prompt: string, library: PromptModule[], pr
   for (const choices of byFirst.values()) choices.sort((a, b) => b.tokens.length - a.tokens.length);
   const modules: SelectedPrompt[] = [];
   for (const saved of previous) {
-    const template = library.find(item => tagKey(item.prompt) === tagKey(saved.prompt));
+    const savedTokens = promptTokens(saved.prompt);
+    const template = templates.find(({ tokens }) => tokens.length === savedTokens.length && tokens.every((token, i) =>
+      tagKey(token.text) === tagKey(savedTokens[i].text) && sameWeight(token.weight, savedTokens[i].weight)))?.item;
     const item = template ? { id: template.id, category: template.category, prompt: template.prompt, weight: roundedPromptWeight(saved.weight) } : { ...saved, weight: roundedPromptWeight(saved.weight) };
     if (!modules.some(current => current.id === item.id) && modules.length < 100) modules.push(item);
   }

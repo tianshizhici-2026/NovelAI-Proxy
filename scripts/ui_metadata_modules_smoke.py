@@ -7,9 +7,10 @@ from playwright.sync_api import sync_playwright, expect
 expect.set_options(timeout=15000)
 ROOT = Path(__file__).resolve().parents[1]
 LIBRARY = json.loads((ROOT/'data/prompts.json').read_text())
-LEGACY = '1girl, .004::artist:chen bin::, 1.776::artist:nahaki::, .34::watercolor::, .55::masterpiece, sunset::, very detailed'
+LIBRARY.append({'id':'test-numeric-artist','category':'artist','name':'docy520','prompt':'artist:docy520','url':'https://danbooru.donmai.us/posts?tags=docy520'})
+LEGACY = '1girl, .004::artist:"chen bin"::, .34::artist:"docy520"::, 1.776::artist:nahaki::, .34::watercolor::, .55::masterpiece, sunset::, very detailed'
 REMAINING = '1girl, .55:: sunset::, very detailed'
-EXPECTED = {'artist:chen bin': .1, 'artist:nahaki': 1.8, 'watercolor': .3, 'masterpiece': .6, 'very aesthetic': 1, 'no text': 1}
+EXPECTED = {'artist:chen bin': .1, 'artist:docy520': .3, 'artist:nahaki': 1.8, 'watercolor': .3, 'masterpiece': .6, 'very aesthetic': 1, 'no text': 1}
 
 def png(comment):
     output = io.BytesIO(); info = PngImagePlugin.PngInfo(); info.add_itxt('Comment', json.dumps(comment))

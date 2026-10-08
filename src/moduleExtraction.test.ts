@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_QUALITY_MODULES, extractPromptModules, roundedPromptWeight, type PromptModule } from '../shared/prompts';
+import { composedPrompt, danbooruUrl, DEFAULT_QUALITY_MODULES, extractPromptModules, roundedPromptWeight, type PromptModule } from '../shared/prompts';
 import { modularizeSettings, normalizeMetadata } from './metadata';
 import { DEFAULT_SETTINGS } from '../shared/types';
 import { buildPayload, inputSchema } from '../server/policy';
@@ -8,6 +8,38 @@ import { buildPayload, inputSchema } from '../server/policy';
 const artist: PromptModule = { id: 'artist-current', category: 'artist', name: 'Example', prompt: 'artist:chen bin', url: 'https://example.com' };
 const artistTwo: PromptModule = { ...artist, id: 'artist-two', prompt: 'artist:nahaki' };
 const library = [artist, artistTwo, ...DEFAULT_QUALITY_MODULES];
+
+test('quoted numeric artist names import into the same preset as unquoted names, with rounded weights', () => {
+  const numeric = { ...artist, id: 'artist-numeric', prompt: 'artist:docy520' };
+  for (const name of ['artist:docy520', 'artist:"docy520"', 'artist: "DOCY520"', 'artist::"docy520"']) {
+    const result = normalizeMetadata({ Comment: { prompt: `.34::${name}::, forest`, qualityToggle: false } }, 1024, 1024, [...library, numeric]);
+    assert.equal(result.settings.prompt, 'forest');
+    assert.deepEqual(result.settings.promptModules, [{ id: numeric.id, category: 'artist', prompt: numeric.prompt, weight: .3 }]);
+  }
+  const quotedPreset = { ...numeric, prompt: 'artist:"docy520"' };
+  assert.equal(extractPromptModules('.3::artist:docy520::', [quotedPreset]).modules[0].id, numeric.id);
+  const saved = extractPromptModules('forest', [numeric], [{ id: 'old', category: 'artist', prompt: 'artist:"docy520"', weight: .34 }]);
+  assert.deepEqual(saved.modules, [{ id: numeric.id, category: 'artist', prompt: numeric.prompt, weight: .3 }]);
+  assert.equal(danbooruUrl('artist:"docy520"'), danbooruUrl('artist:docy520'));
+});
+test('numeric artist modules generate quoted names and round-trip without duplicate quotation marks', () => {
+  for (const prompt of ['artist:docy520', 'artist:"docy520"']) {
+    const numeric = { ...artist, id: 'numeric', prompt };
+    const modules = [{ id: numeric.id, category: numeric.category, prompt, weight: .3 }];
+    const payload = buildPayload(inputSchema.parse({ ...DEFAULT_SETTINGS, prompt: 'forest', promptModules: modules, qualityTags: false, mode: 'generate' }));
+    assert.equal(payload.input, '0.3::artist:"docy520"::, forest');
+    const restored = normalizeMetadata({ Comment: { prompt: payload.input, qualityToggle: false } }, 1024, 1024, [numeric]);
+    assert.equal(restored.settings.prompt, 'forest'); assert.deepEqual(restored.settings.promptModules, modules);
+  }
+  assert.equal(composedPrompt('forest', [{ id: 'group', category: 'artist', prompt: 'artist:docy520, artist:chen bin, artist:xxx123', weight: .8 }]),
+    '0.8::artist:"docy520", artist:chen bin, artist:"xxx123"::, forest');
+});
+test('quoted names keep literal punctuation and unknown artists in the remaining prompt', () => {
+  const literal = { ...artist, id: 'literal', prompt: 'artist:"test,{520}::name"' };
+  const result = extractPromptModules('.3::artist:"test,{520}::name"::, .6::artist:"unknown520"::, forest', [literal]);
+  assert.equal(result.modules[0].weight, .3);
+  assert.equal(result.prompt, '.6::artist:"unknown520"::, forest');
+});
 
 test('legacy numeric artist/style strings become modules, using current template IDs and rounded weights', () => {
   const result = extractPromptModules('0.21::artist:chen bin::, forest, 1.776::artist:nahaki::, .34::masterpiece::, unknown', library);
