@@ -20,7 +20,7 @@ export const inputSchema = z.object({
   noise: z.number().min(0).max(1).default(0.2),
   seed: z.number().int().min(0).max(0xffffffff).nullable().default(null),
   useAnlas: z.boolean().default(false),
-  promptModules: z.array(z.object({ id: z.string().max(80), category: z.enum(['artist', 'quality']), prompt: z.string().trim().min(1).max(6000), weight: z.number().min(0.1) }).strict()).max(100).default([]),
+  promptModules: z.array(z.object({ id: z.string().max(80), category: z.enum(['artist', 'quality']), prompt: z.string().trim().min(1).max(6000), weight: z.number().refine(weight => Math.abs(weight) >= 0.1) }).strict()).max(100).default([]),
   image: z.string().max(12_000_000).optional(), mask: z.string().max(12_000_000).optional(),
 }).strict().superRefine((data, ctx) => {
   if (!data.prompt.trim() && !data.characters.some(c => c.enabled && c.prompt.trim()) && !data.promptModules.length)

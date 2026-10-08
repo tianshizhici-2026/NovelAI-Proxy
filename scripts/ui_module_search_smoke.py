@@ -8,6 +8,9 @@ LIBRARY = json.loads((ROOT / 'data/prompts.json').read_text()) + [
     {'id': 'test-search-' + name, 'category': 'artist', 'name': name,
      'prompt': 'artist:' + name, 'url': 'https://example.com'} for name in ['docy520', 'xxx123']
 ]
+if not any(item['prompt'] == 'artist collaboration' for item in LIBRARY):
+    LIBRARY.append({'id':'test-suppression','category':'quality','name':'抑制画师协作',
+                    'prompt':'artist collaboration','defaultWeight':-5,'url':'https://example.com'})
 expect.set_options(timeout=15000)
 
 with sync_playwright() as p:
@@ -57,6 +60,15 @@ with sync_playwright() as p:
     quality.locator('.module-library > summary').click()
     page.get_by_label('搜索质量风格', exact=True).fill('^watercolor$')
     expect(quality.locator('.module-option')).to_have_count(1)
+    page.get_by_label('搜索质量风格', exact=True).fill('^artist collaboration$')
+    page.get_by_role('button', name='抑制画师协作', exact=True).click()
+    expect(page.get_by_label('artist collaboration 权重', exact=True)).to_have_text('-5.0')
+    page.get_by_role('button', name='artist collaboration 权重减 0.1', exact=True).click()
+    expect(page.get_by_label('artist collaboration 权重', exact=True)).to_have_text('-5.1')
+    page.get_by_role('button', name='artist collaboration 权重加 0.1', exact=True).click()
+    expect(page.get_by_label('artist collaboration 权重', exact=True)).to_have_text('-5.0')
+    page.reload()
+    expect(page.locator('.module-row').filter(has_text='抑制画师协作').get_by_label('artist collaboration 权重', exact=True)).to_have_text('-5.0')
     page.set_viewport_size({'width': 390, 'height': 844})
     page.get_by_role('button', name='提示词', exact=True).click()
     page.locator('.module-library > summary').filter(has_text='添加画师串').click()
@@ -82,4 +94,4 @@ with sync_playwright() as p:
     assert page.locator('.module-manager-item').count() >= 2
     assert not errors, errors
     browser.close()
-    print('Full Anlas balance at 8 widths; artist/quality/manager regex search, invalid patterns, add/edit and mobile passed.')
+    print('Full balances; module regex search, negative preset weights, adjustments, persistence, add/edit and mobile passed.')

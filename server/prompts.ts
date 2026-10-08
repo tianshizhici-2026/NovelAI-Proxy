@@ -10,6 +10,7 @@ export const promptSchema = z.object({
   category: z.enum(['artist', 'quality']), name: z.string().trim().min(1).max(120),
   prompt: z.string().trim().min(1).max(6000),
   url: z.string().max(2000).url().refine(value => /^https?:\/\//i.test(value)),
+  defaultWeight: z.number().refine(weight => Math.abs(weight) >= 0.1).optional(),
 }).strict();
 const itemSchema = promptSchema.extend({ id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), preview: z.string().max(200).optional() });
 export class PromptStore {

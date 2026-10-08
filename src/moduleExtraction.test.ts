@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { composedPrompt, danbooruUrl, DEFAULT_QUALITY_MODULES, extractPromptModules, roundedPromptWeight, type PromptModule } from '../shared/prompts';
+import { composedPrompt, danbooruUrl, DEFAULT_QUALITY_MODULES, extractPromptModules, parsePromptText, roundedPromptWeight, type PromptModule } from '../shared/prompts';
 import { modularizeSettings, normalizeMetadata } from './metadata';
 import { DEFAULT_SETTINGS } from '../shared/types';
 import { buildPayload, inputSchema } from '../server/policy';
@@ -8,6 +8,21 @@ import { buildPayload, inputSchema } from '../server/policy';
 const artist: PromptModule = { id: 'artist-current', category: 'artist', name: 'Example', prompt: 'artist:chen bin', url: 'https://example.com' };
 const artistTwo: PromptModule = { ...artist, id: 'artist-two', prompt: 'artist:nahaki' };
 const library = [artist, artistTwo, ...DEFAULT_QUALITY_MODULES];
+
+test('negative suppression presets retain their sign in text import, metadata and generation', () => {
+  const parsed = parsePromptText('-5::artist collaboration,::\n抑制画师协作\t-5::artist collaboration::', 'quality');
+  assert.equal(parsed.length, 1); assert.equal(parsed[0].prompt, 'artist collaboration'); assert.equal(parsed[0].defaultWeight, -5);
+  const suppression: PromptModule = { ...parsed[0], id: 'suppression' };
+  const result = normalizeMetadata({ Comment: { prompt: 'forest, -5::artist collaboration,::', qualityToggle: false } }, 1024, 1024, [suppression]);
+  assert.equal(result.settings.prompt, 'forest');
+  assert.deepEqual(result.settings.promptModules, [{ id: 'suppression', category: 'quality', prompt: 'artist collaboration', weight: -5 }]);
+  const payload = buildPayload(inputSchema.parse({ ...DEFAULT_SETTINGS, ...result.settings, mode: 'generate' }));
+  assert.equal(payload.input, 'forest, -5.0::artist collaboration::');
+  assert.equal(payload.parameters.v4_prompt.caption.base_caption, payload.input);
+  assert.equal(roundedPromptWeight(-4.96), -5); assert.equal(roundedPromptWeight(-.004), -.1);
+  const stored = normalizeMetadata({ Comment: { prompt: 'forest', qualityToggle: false, novelai_proxy_modules: result.settings.promptModules } }, 1024, 1024, [suppression]);
+  assert.deepEqual(stored.settings.promptModules, result.settings.promptModules);
+});
 
 test('quoted numeric artist names import into the same preset as unquoted names, with rounded weights', () => {
   const numeric = { ...artist, id: 'artist-numeric', prompt: 'artist:docy520' };

@@ -1,5 +1,5 @@
 export type PromptCategory = 'artist' | 'quality';
-export type PromptModule = { id: string; category: PromptCategory; name: string; prompt: string; url: string; preview?: string };
+export type PromptModule = { id: string; category: PromptCategory; name: string; prompt: string; url: string; preview?: string; defaultWeight?: number };
 export type SelectedPrompt = Pick<PromptModule, 'id' | 'category' | 'prompt'> & { weight: number };
 export const QUALITY_PROMPTS = [
   'very aesthetic', 'masterpiece', 'no text', 'best quality', 'high quality',
@@ -37,8 +37,9 @@ function weighted(module: SelectedPrompt) {
   return `${module.weight.toFixed(1)}::${prompt}::`;
 }
 export function roundedPromptWeight(weight: number) {
-  const rounded = Math.round((weight + Number.EPSILON * Math.max(1, Math.abs(weight))) * 10) / 10;
-  return Math.max(0.1, Number.isFinite(rounded) ? rounded : weight);
+  const magnitude = Math.abs(weight);
+  const rounded = Math.round((magnitude + Number.EPSILON * Math.max(1, magnitude)) * 10) / 10;
+  return (weight < 0 ? -1 : 1) * Math.max(0.1, Number.isFinite(rounded) ? rounded : magnitude);
 }
 
 type PromptToken = { text: string; start: number; end: number; weight: number };
@@ -152,6 +153,12 @@ export function parsePromptText(text: string, category: PromptCategory): Omit<Pr
   return text.replace(/^\uFEFF/, '').split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#')).flatMap(line => {
     const parts = line.split(/\t+/);
     let prompt = (parts.length > 1 ? parts[1] : parts[0]).trim();
+    let defaultWeight: number | undefined;
+    const negative = /^(-(?:\d+(?:\.\d*)?|\.\d+))::/.exec(prompt);
+    if (negative) {
+      defaultWeight = roundedPromptWeight(Number(negative[1]));
+      prompt = prompt.slice(negative[0].length).replace(/[,\s]*::[,\s]*$/, '').trim();
+    }
     if (parts.length === 1) {
       // Notes in existing artist/style lists are descriptions, not generation tags.
       prompt = prompt.replace(/^[\d.]+::/, '').replace(/^artist::/, 'artist:');
@@ -165,6 +172,6 @@ export function parsePromptText(text: string, category: PromptCategory): Omit<Pr
     if (!prompt || prompt.length > 6000 || seen.has(prompt)) return [];
     seen.add(prompt);
     const url = parts[2] && /^https?:\/\//i.test(parts[2]) ? parts[2] : danbooruUrl(prompt);
-    return [{ category, name: (parts.length > 1 ? parts[0] : prompt).slice(0, 120), prompt, url }];
+    return [{ category, name: (parts.length > 1 ? parts[0] : prompt).slice(0, 120), prompt, url, ...(defaultWeight === undefined ? {} : { defaultWeight }) }];
   }).slice(0, 1000);
 }

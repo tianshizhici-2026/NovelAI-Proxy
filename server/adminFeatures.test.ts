@@ -116,6 +116,8 @@ test('prompt CRUD, text import, custom URL and uploaded local preview survive re
     const file = path.join(dir, 'library.json'); const store = new PromptStore(file, dir);
     assert.equal(store.list().filter(item => item.category === 'artist').length, 2);
     assert.ok(store.list().some(item => item.prompt === 'painterly'));
+    assert.equal(store.import('抑制画师协作\t-5::artist collaboration::', 'quality'), 1);
+    assert.equal(store.list().find(item => item.prompt === 'artist collaboration')?.defaultWeight, -5);
     assert.deepEqual(new PromptStore(file, dir).list(), store.list());
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

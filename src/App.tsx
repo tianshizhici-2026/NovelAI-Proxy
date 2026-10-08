@@ -31,7 +31,7 @@ function initialSettings(draftKey: string): Settings {
         noise: Math.min(1, Math.max(0, Number.isFinite(saved.noise) ? saved.noise : DEFAULT_SETTINGS.noise)),
         seed: Number.isInteger(saved.seed) && saved.seed >= 0 && saved.seed <= 0xffffffff ? saved.seed : null,
         useAnlas: saved.useAnlas === true,
-        promptModules: Array.isArray(saved.promptModules) ? saved.promptModules.filter((m: SelectedPrompt) => m && typeof m.id === 'string' && ['artist', 'quality'].includes(m.category) && typeof m.prompt === 'string' && m.prompt.length <= 6000 && Number.isFinite(m.weight) && m.weight >= 0.1).slice(0, 100) : undefined,
+        promptModules: Array.isArray(saved.promptModules) ? saved.promptModules.filter((m: SelectedPrompt) => m && typeof m.id === 'string' && ['artist', 'quality'].includes(m.category) && typeof m.prompt === 'string' && m.prompt.length <= 6000 && Number.isFinite(m.weight) && Math.abs(m.weight) >= 0.1).slice(0, 100) : undefined,
         resolution: saved.resolution in RESOLUTIONS ? saved.resolution : 'portrait',
         steps: Math.min(28, Math.max(23, Math.round(Number(saved.steps) || 23))),
         guidance: Math.min(10, Math.max(0.1, Number(saved.guidance) || 7)),

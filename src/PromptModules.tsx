@@ -13,7 +13,7 @@ export default function PromptModules({ selected, onChange }: { selected: Select
   useEffect(() => { accountJson<{ prompts: PromptModule[] }>('/api/admin/prompts').then(result => setLibrary(result.prompts)).catch(error => setError(error.message)); }, []);
   function add(item: PromptModule) {
     if (!selected.some(current => current.id === item.id) && selected.length < 100)
-      onChange([...selected, { id: item.id, category: item.category, prompt: item.prompt, weight: 0.8 }]);
+      onChange([...selected, { id: item.id, category: item.category, prompt: item.prompt, weight: roundedPromptWeight(item.defaultWeight ?? 0.8) }]);
   }
   function weight(item: SelectedPrompt, delta: number) {
     onChange(selected.map(current => current.id === item.id ? { ...current, weight: roundedPromptWeight(current.weight + delta) } : current));
@@ -31,7 +31,7 @@ export default function PromptModules({ selected, onChange }: { selected: Select
           {source?.preview ? <button type="button" className="module-preview" aria-label={`预览 ${source.name}`} onClick={() => setPreview(source)}><img src={`/api/admin/prompts/${source.id}/preview?v=${source.preview}`} alt={source.name} /></button> : <span className="module-placeholder"><ImageIcon size={16} /></span>}
           <span className="module-name" title={item.prompt}>{source?.name ?? item.prompt}</span>
           {source && <a className="tool module-link" href={source.url} target="_blank" rel="noopener noreferrer" aria-label={`Danbooru ${source.name}`}><ExternalLink size={13} /></a>}
-          <div className="module-weight"><button type="button" className="tool" aria-label={`${item.prompt} 权重减 0.1`} disabled={item.weight <= 0.1} onClick={() => weight(item, -0.1)}><Minus size={12} /></button><output aria-label={`${item.prompt} 权重`}>{item.weight.toFixed(1)}</output><button type="button" className="tool" aria-label={`${item.prompt} 权重加 0.1`} onClick={() => weight(item, 0.1)}><Plus size={12} /></button></div>
+          <div className="module-weight"><button type="button" className="tool" aria-label={`${item.prompt} 权重减 0.1`} disabled={item.weight > 0 && item.weight <= 0.1} onClick={() => weight(item, -0.1)}><Minus size={12} /></button><output aria-label={`${item.prompt} 权重`}>{item.weight.toFixed(1)}</output><button type="button" className="tool" aria-label={`${item.prompt} 权重加 0.1`} disabled={item.weight < 0 && item.weight >= -0.1} onClick={() => weight(item, 0.1)}><Plus size={12} /></button></div>
           <button type="button" className="tool" aria-label={`移除 ${item.prompt}`} onClick={() => onChange(selected.filter(current => current.id !== item.id))}><X size={13} /></button>
         </div>;
       })}</div>
