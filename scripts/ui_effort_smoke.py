@@ -1,0 +1,91 @@
+"""Verify effort switching, metadata, all generation modes and mobile on the isolated fixture server."""
+import io, json, os
+from PIL import Image, PngImagePlugin
+from playwright.sync_api import sync_playwright, expect
+
+expect.set_options(timeout=15000)
+BASE = os.environ.get('NAI_PREVIEW_URL', 'http://127.0.0.1:6007')
+def png():
+    buf = io.BytesIO(); info = PngImagePlugin.PngInfo()
+    info.add_text('Source', 'NovelAI Diffusion V5 70AB5786')
+    info.add_text('Comment', json.dumps({'prompt': 'forest, -3::hat::', 'steps': 14, 'seed': 123, 'width': 832, 'height': 1216}))
+    Image.new('RGB', (832, 1216), '#abc').save(buf, format='PNG', pnginfo=info)
+    return {'name': 'medium.png', 'mimeType': 'image/png', 'buffer': buf.getvalue()}
+
+def login(page, username):
+    page.goto(BASE)
+    page.get_by_label('账号', exact=True).fill(username)
+    page.get_by_label('密码', exact=True).fill('preview-password')
+    page.get_by_role('button', name='进入创作工作台').click()
+
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+    context = browser.new_context(viewport={'width': 1440, 'height': 1000})
+    page = context.new_page(); submitted, errors = [], []
+    page.on('pageerror', lambda err: errors.append(str(err)))
+    page.on('request', lambda req: submitted.append(req.post_data_json) if req.url.endswith('/api/generate') else None)
+    login(page, 'preview-admin')
+    high = page.get_by_role('button', name='High', exact=True)
+    medium = page.get_by_role('button', name='Medium', exact=True)
+    expect(high).to_have_attribute('aria-pressed', 'true')
+    page.get_by_label('场景提示词', exact=True).fill('forest')
+    page.get_by_label('负面提示词', exact=True).fill('hat')
+    medium.click()
+    expect(medium).to_have_attribute('aria-pressed', 'true')
+    expect(page.locator('.steps-grid button')).to_have_count(1)
+    expect(page.locator('.steps-grid button')).to_have_text('14')
+    expect(page.locator('.steps-grid button')).to_be_disabled()
+    expect(page.locator('#negative-prompt')).to_have_count(0)
+    high.click()
+    expect(page.get_by_label('负面提示词', exact=True)).to_have_value('hat')
+    expect(page.locator('.steps-grid button')).to_have_count(6)
+    page.get_by_role('button', name='大竖图', exact=False).click()
+    expect(page.locator('.anlas-settings')).to_contain_text('39 Anlas')
+    medium.click()
+    expect(page.locator('.anlas-settings')).to_contain_text('26 Anlas')
+    page.get_by_label('允许使用 Anlas', exact=True).uncheck()
+    page.get_by_role('button', name='生成图像', exact=True).click()
+    expect(page.get_by_role('button', name='复制提示词', exact=True)).to_be_enabled()
+    assert submitted[-1]['effort'] == 'medium' and submitted[-1]['steps'] == 14
+    expect(page.locator('.result-meta')).to_contain_text('Medium · 14 steps')
+    high.click()
+    page.get_by_role('button', name='复制提示词', exact=True).click()
+    expect(medium).to_have_attribute('aria-pressed', 'true')
+    page.get_by_label('上传图片导入元数据', exact=True).set_input_files(png())
+    expect(medium).to_have_attribute('aria-pressed', 'true')
+    expect(page.get_by_label('Seed 数值', exact=True)).to_have_value('123')
+    page.get_by_label('上传 图生图 参考图', exact=True).set_input_files(png())
+    expect(page.get_by_alt_text('图生图 参考图', exact=True)).to_be_visible()
+    expect(page.get_by_role('button', name='锁定 Seed', exact=True)).to_be_visible()
+    page.get_by_role('button', name='生成 图生图', exact=True).click()
+    expect(page.get_by_role('button', name='继续重绘', exact=True)).to_be_enabled()
+    assert submitted[-1]['mode'] == 'img2img' and submitted[-1]['effort'] == 'medium'
+    page.get_by_role('button', name='继续重绘', exact=True).click()
+    expect(page.get_by_label('重绘蒙版画布', exact=True)).to_be_visible()
+    box = page.get_by_label('重绘画布视口', exact=True).bounding_box()
+    x, y = box['x'] + box['width']/2, box['y'] + box['height']/2
+    page.mouse.move(x,y); page.mouse.down(); page.mouse.move(x+30,y+30,steps=5); page.mouse.up()
+    page.get_by_role('button', name='生成局部重绘', exact=True).click()
+    expect(page.get_by_role('button', name='继续重绘', exact=True)).to_be_enabled()
+    assert submitted[-1]['mode'] == 'inpaint' and submitted[-1]['effort'] == 'medium' and submitted[-1]['steps'] == 14
+    page.reload()
+    expect(medium).to_have_attribute('aria-pressed', 'true')
+    page.set_viewport_size({'width': 390, 'height': 844})
+    page.get_by_role('button', name='设置', exact=True).click()
+    expect(medium).to_be_visible()
+    high.click(); expect(page.locator('.steps-grid button')).to_have_count(6)
+    medium.click(); expect(page.locator('.steps-grid button')).to_have_text('14')
+    assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
+    page.screenshot(path='artifacts/novelai-effort-mobile.png')
+    page.get_by_role('button', name='恢复默认生成设置', exact=True).click()
+    expect(high).to_have_attribute('aria-pressed', 'true')
+    assert not errors, errors
+    context.close()
+    context = browser.new_context(viewport={'width': 1440, 'height': 1000})
+    page = context.new_page(); login(page, 'preview-user')
+    page.get_by_label('场景提示词', exact=True).fill('forest')
+    page.get_by_role('button', name='Medium', exact=True).click()
+    page.get_by_role('button', name='生成图像', exact=True).click()
+    expect(page.locator('.result-meta')).to_contain_text('Medium · 14 steps')
+    browser.close()
+    print('Effort UI passed: High/Medium, fixed steps/UC, pricing, metadata/hash import, all modes, history, draft, mobile, users.')

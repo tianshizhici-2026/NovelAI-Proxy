@@ -16,4 +16,5 @@ const app = createApp({ accounts, prompts: new PromptStore('.run/preview-prompts
   return new Response(await sharp({ create: { width: dimensions.width * factor, height: dimensions.height * factor, channels: 3, background: '#80a8c0' } }).png().toBuffer());
 });
 app.use(express.static('dist'));
-app.listen(6007, '127.0.0.1', () => console.log('Isolated UI preview: http://127.0.0.1:6007'));
+const port = Number(process.env.PREVIEW_PORT) || 6007;
+app.listen(port, '127.0.0.1', () => console.log(`Isolated UI preview: http://127.0.0.1:${port}`));

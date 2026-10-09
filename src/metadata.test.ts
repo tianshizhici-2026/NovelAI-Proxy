@@ -23,6 +23,19 @@ function concat(...parts: Uint8Array[]) {
   return data;
 }
 const comment = { prompt: '2girls, 雨上がり', uc: 'blurry', steps: 28, scale: 6.5, width: 1024, height: 1024 };
+test('restores Medium from exported effort, model names and official hashes; old images remain High', () => {
+  for (const extra of [{ effort: 'medium' }, { model: 'nai-diffusion-5-full-medium' }, { model: 'nai-diffusion-5-full-medium-inpainting' }]) {
+    const result = normalizeMetadata({ Comment: { ...comment, ...extra, steps: 14, seed: 123 } }, 1024, 1024);
+    assert.equal(result.settings.effort, 'medium'); assert.equal(result.settings.steps, 14); assert.equal(result.settings.seed, 123);
+    assert.equal(result.notes.length, 0);
+  }
+  for (const hash of ['93F4BD30', '70AB5786']) {
+    const result = normalizeMetadata({ Source: `NovelAI Diffusion V5 ${hash}`, Comment: { ...comment, steps: 17 } }, 1024, 1024);
+    assert.equal(result.settings.effort, 'medium'); assert.equal(result.settings.steps, 14);
+  }
+  const old = normalizeMetadata({ Comment: comment }, 1024, 1024).settings;
+  assert.equal(old.effort, 'high'); assert.equal(old.steps, 28);
+});
 
 test('metadata separates a recognised default preset and preserves custom-only negatives exactly', () => {
   for (const uc of [DEFAULT_NEGATIVE_PROMPT, `${DEFAULT_NEGATIVE_PROMPT}, glasses`, 'blurry, lowres']) {

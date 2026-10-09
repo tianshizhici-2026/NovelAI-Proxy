@@ -3,8 +3,29 @@ import assert from 'node:assert/strict';
 import { DEFAULT_SETTINGS, RESOLUTIONS, FREE_RESOLUTIONS } from '../shared/types.js';
 import { buildPayload, eligibleSubscription, inputSchema } from './policy.js';
 import { DEFAULT_NEGATIVE_PROMPT } from '../shared/negative.js';
+import { MEDIUM_NEGATIVE_PROMPT } from '../shared/effort.js';
 
 const input = { ...DEFAULT_SETTINGS, mode: 'generate' as const, prompt: '1girl, outdoors' };
+test('Medium requires 14 steps, uses corresponding models and fixed negatives in every mode', () => {
+  const { effort: _effort, ...legacy } = input;
+  assert.equal(inputSchema.parse(legacy).effort, 'high');
+  for (const steps of [13, 15, 16, 17, 23, 28]) assert.equal(inputSchema.safeParse({ ...input, effort: 'medium', steps }).success, false);
+  for (const mode of ['generate', 'img2img', 'inpaint'] as const) {
+    const images = mode === 'generate' ? undefined : { image: 'fixture', ...(mode === 'inpaint' ? { mask: 'mask' } : {}) };
+    const payload = buildPayload(inputSchema.parse({ ...input, effort: 'medium', steps: 14, mode, ...images,
+      negativePrompt: 'hat', defaultNegative: false, seed: 0, characters: [{ id: 'a', name: '', enabled: true, prompt: 'girl, -3::hat::', negativePrompt: 'red eyes', x: 0.2, y: 0.4 }],
+    }), images);
+    assert.equal(payload.model, `nai-diffusion-5-full-medium${mode === 'inpaint' ? '-inpainting' : ''}`);
+    assert.equal(payload.parameters.steps, 14);
+    assert.equal(payload.parameters.seed, 0);
+    assert.equal(payload.parameters.negative_prompt, MEDIUM_NEGATIVE_PROMPT);
+    assert.equal(payload.parameters.v4_negative_prompt.caption.base_caption, MEDIUM_NEGATIVE_PROMPT);
+    assert.equal(payload.parameters.v4_negative_prompt.caption.char_captions[0].char_caption, '');
+    assert.equal(payload.parameters.v4_prompt.caption.char_captions[0].char_caption, 'girl, -3::hat::');
+    if (mode === 'img2img') { assert.equal(payload.parameters.strength, 0.55); assert.equal(payload.parameters.noise, 0.2); }
+    if (mode === 'inpaint') assert.deepEqual(payload.parameters.img2img, { strength: 0.55, color_correct: true });
+  }
+});
 test('default negative toggle merges the official preset with custom content in both caption fields', () => {
   for (const enabled of [true, false]) {
     const payload = buildPayload(inputSchema.parse({ ...input, defaultNegative: enabled, negativePrompt: 'blurry, extra fingers' }));

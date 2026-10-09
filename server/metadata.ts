@@ -15,7 +15,7 @@ export async function attachGenerationMetadata(result: Buffer, generated: Buffer
     ...parameters, ...upstream,
     prompt: upstream.prompt ?? payload.input, uc: upstream.uc ?? parameters.negative_prompt,
     width: parameters.width, height: parameters.height,
-    model: payload.model, action: payload.action, mode: input.mode,
+    model: payload.model, effort: input.effort, action: payload.action, mode: input.mode,
     strength: input.mode !== 'generate' ? input.strength : undefined,
     noise: input.mode === 'img2img' ? input.noise : undefined,
     v4_prompt_original: { ...parameters.v4_prompt, caption: { ...parameters.v4_prompt.caption, base_caption: input.prompt } },

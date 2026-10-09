@@ -4,8 +4,8 @@ import type { Character } from '../shared/types';
 import { newId } from './id';
 
 const COLORS = ['#c86c97', '#6999c8', '#e28eac', '#7eafd4', '#bc718e', '#8aacc8'];
-type Props = { characters: Character[]; useCoords: boolean; disabled: boolean; onChange: (characters: Character[]) => void; onCoordsChange: (enabled: boolean) => void; aspectRatio: number };
-export default function Characters({ characters, useCoords, disabled, onChange, onCoordsChange, aspectRatio }: Props) {
+type Props = { characters: Character[]; useCoords: boolean; disabled: boolean; negativeDisabled?: boolean; onChange: (characters: Character[]) => void; onCoordsChange: (enabled: boolean) => void; aspectRatio: number };
+export default function Characters({ characters, useCoords, disabled, negativeDisabled, onChange, onCoordsChange, aspectRatio }: Props) {
   const [positions, setPositions] = useState(false);
   const [selected, setSelected] = useState<string>('');
   function update(id: string, change: Partial<Character>) { onChange(characters.map(c => c.id === id ? { ...c, ...change } : c)); }
@@ -36,7 +36,7 @@ export default function Characters({ characters, useCoords, disabled, onChange, 
         <button className="tool small" aria-label={`删除角色 ${index + 1}`} disabled={disabled} onClick={() => onChange(characters.filter(x => x.id !== c.id))}><X size={15} /></button>
       </div>
       <textarea aria-label={`角色 ${index + 1} 提示词`} maxLength={6000} rows={3} placeholder="girl, silver hair, blue eyes, ..." value={c.prompt} onChange={e => update(c.id, { prompt: e.target.value })} disabled={disabled} />
-      <details className="character-negative"><summary>角色负面提示词</summary><textarea aria-label={`角色 ${index + 1} 负面提示词`} maxLength={6000} rows={2} placeholder="不希望出现在该角色上的特征" value={c.negativePrompt} onChange={e => update(c.id, { negativePrompt: e.target.value })} disabled={disabled} /></details>
+      {!negativeDisabled && <details className="character-negative"><summary>角色负面提示词</summary><textarea aria-label={`角色 ${index + 1} 负面提示词`} maxLength={6000} rows={2} placeholder="不希望出现在该角色上的特征" value={c.negativePrompt} onChange={e => update(c.id, { negativePrompt: e.target.value })} disabled={disabled} /></details>}
     </div>)}
     {!!characters.length && <div className="position-setting"><label htmlFor="position-mode">角色位置</label><select id="position-mode" value={useCoords ? 'custom' : 'auto'} disabled={disabled} onChange={e => onCoordsChange(e.target.value === 'custom')}><option value="auto">AI 决定</option><option value="custom">自定义位置</option></select>
       {useCoords && <button className="text-button" disabled={disabled} onClick={() => { setPositions(true); setSelected(characters.find(c => c.enabled)?.id ?? characters[0].id); }}><MapPin size={13} />设置位置</button>}

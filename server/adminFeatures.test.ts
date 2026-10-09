@@ -42,6 +42,35 @@ async function fixture(fn: (request: (route: string, body?: unknown, user?: stri
   finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(dir, { recursive: true, force: true }); }
 }
 const baseInput = { ...DEFAULT_SETTINGS, prompt: 'forest', seed: 12, mode: 'generate' };
+test('Medium works for ordinary users in all modes and restores effort/seed/modules from result metadata', async () => {
+  await fixture(async (request, generated) => {
+    const image = await sharp({ create: { width: 832, height: 1216, channels: 3, background: '#abc' } }).png().toBuffer();
+    const mask = await sharp({ create: { width: 832, height: 1216, channels: 3, background: '#fff' } }).png().toBuffer();
+    for (const mode of ['generate', 'img2img', 'inpaint']) {
+      const response = await request('/api/generate', { ...baseInput, mode, effort: 'medium', steps: 14,
+        ...(mode === 'generate' ? {} : { image: `data:image/png;base64,${image.toString('base64')}` }),
+        ...(mode === 'inpaint' ? { mask: `data:image/png;base64,${mask.toString('base64')}` } : {}),
+      }, 'user');
+      assert.equal(response.status, 200);
+      const result = Buffer.from(await response.arrayBuffer());
+      const metadata = pngMetadata(result), comment = JSON.parse(metadata.Comment);
+      assert.equal(comment.effort, 'medium'); assert.equal(comment.steps, 14); assert.equal(comment.seed, 12);
+      assert.equal(comment.mode, mode); assert.equal('image' in comment || 'mask' in comment, false);
+      const imported = normalizeMetadata(metadata, 832, 1216).settings;
+      assert.equal(imported.effort, 'medium'); assert.equal(imported.steps, 14); assert.equal(imported.seed, 12);
+      assert.equal(generated.at(-1)!.model, `nai-diffusion-5-full-medium${mode === 'inpaint' ? '-inpainting' : ''}`);
+    }
+    const account = (await (await request('/api/status', undefined, 'user')).json()).account;
+    assert.equal(account.used, 3);
+  });
+});
+test('Medium uses official discounted step pricing before rounding while normal Opus sizes remain free', () => {
+  const medium = { ...DEFAULT_SETTINGS, effort: 'medium' as const, steps: 14 };
+  assert.equal(generationAnlas(medium, 'generate', true), 0);
+  assert.equal(generationAnlas({ ...medium, resolution: 'largePortrait' }, 'generate', true), 26);
+  assert.equal(generationAnlas({ ...medium, resolution: 'largePortrait' }, 'img2img', true), 15);
+  assert.equal(generationAnlas({ ...DEFAULT_SETTINGS, resolution: 'largePortrait' }, 'generate', true), 39);
+});
 
 test('normal users cannot spend Anlas, request large sizes, manage or submit modules, or upscale', async () => {
   await fixture(async (request, generated) => {

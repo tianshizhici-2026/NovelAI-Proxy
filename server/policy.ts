@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { RESOLUTIONS } from '../shared/types.js';
 import { combinedNegativePrompt } from '../shared/negative.js';
 import { composedPrompt, quoteNumericTags } from '../shared/prompts.js';
+import { MEDIUM_NEGATIVE_PROMPT, MEDIUM_STEPS } from '../shared/effort.js';
 
 const character = z.object({
   id: z.string().max(80), name: z.string().max(100),
@@ -14,7 +15,8 @@ export const inputSchema = z.object({
   prompt: z.string().max(12000), negativePrompt: z.string().max(12000),
   qualityTags: z.boolean(), resolution: z.enum(Object.keys(RESOLUTIONS) as [keyof typeof RESOLUTIONS, ...(keyof typeof RESOLUTIONS)[]]),
   defaultNegative: z.boolean().default(false),
-  steps: z.number().int().min(23).max(28), guidance: z.number().min(0.1).max(10),
+  effort: z.enum(['high', 'medium']).default('high'),
+  steps: z.number().int().min(14).max(28), guidance: z.number().min(0.1).max(10),
   characters: z.array(character).max(22), useCoords: z.boolean(),
   strength: z.number().min(0).max(1),
   noise: z.number().min(0).max(1).default(0.2),
@@ -23,6 +25,8 @@ export const inputSchema = z.object({
   promptModules: z.array(z.object({ id: z.string().max(80), category: z.enum(['artist', 'quality']), prompt: z.string().trim().min(1).max(6000), weight: z.number().refine(weight => Math.abs(weight) >= 0.1) }).strict()).max(100).default([]),
   image: z.string().max(12_000_000).optional(), mask: z.string().max(12_000_000).optional(),
 }).strict().superRefine((data, ctx) => {
+  if (data.effort === 'medium' ? data.steps !== MEDIUM_STEPS : data.steps < 23)
+    ctx.addIssue({ code: 'custom', path: ['steps'], message: data.effort === 'medium' ? 'Medium 固定为 14 步。' : 'High 步数为 23–28。' });
   if (!data.prompt.trim() && !data.characters.some(c => c.enabled && c.prompt.trim()) && !data.promptModules.length)
     ctx.addIssue({ code: 'custom', path: ['prompt'], message: '请填写场景或角色提示词。' });
   if (data.mode === 'inpaint' && (!data.image || !data.mask))
@@ -59,11 +63,12 @@ export function eligibleSubscription(raw: unknown, minUsagePercent = 1, now = Da
 export function buildPayload(input: ValidatedInput, images?: { image: string; mask?: string }) {
   const { width, height } = RESOLUTIONS[input.resolution];
   const prompt = [composedPrompt(input.prompt, input.promptModules), input.qualityTags ? 'very aesthetic, masterpiece, no text' : ''].filter(Boolean).join(', ');
-  const negativePrompt = quoteNumericTags(combinedNegativePrompt(input.negativePrompt, input.defaultNegative));
+  const medium = input.effort === 'medium';
+  const negativePrompt = medium ? MEDIUM_NEGATIVE_PROMPT : quoteNumericTags(combinedNegativePrompt(input.negativePrompt, input.defaultNegative));
   const characters = input.characters.filter(c => c.enabled && c.prompt.trim());
   const seed = input.seed ?? randomInt(0, 0x1_0000_0000);
   const captions = (negative: boolean) => characters.map(c => ({
-    char_caption: quoteNumericTags(negative ? c.negativePrompt : c.prompt),
+    char_caption: negative && medium ? '' : quoteNumericTags(negative ? c.negativePrompt : c.prompt),
     centers: [{ x: c.x, y: c.y }],
   }));
   const imageParameters: { image?: string; mask?: string; extra_noise_seed?: number; strength?: number; noise?: number; color_correct?: boolean; img2img?: { strength: number; color_correct: boolean } } = images ? {
@@ -73,7 +78,7 @@ export function buildPayload(input: ValidatedInput, images?: { image: string; ma
   } : {};
   return {
     input: prompt,
-    model: input.mode === 'inpaint' ? 'nai-diffusion-5-full-inpainting' : 'nai-diffusion-5-full',
+    model: `nai-diffusion-5-full${medium ? '-medium' : ''}${input.mode === 'inpaint' ? '-inpainting' : ''}`,
     action: input.mode === 'inpaint' ? 'infill' : input.mode === 'img2img' ? 'img2img' : 'generate',
     parameters: {
       params_version: 4, width, height, steps: input.steps, scale: input.guidance,

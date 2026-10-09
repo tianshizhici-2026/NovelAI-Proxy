@@ -4,6 +4,7 @@ import { RESOLUTIONS, type Character, type Resolution, type Settings } from '../
 import { DEFAULT_QUALITY_MODULES, extractPromptModules, roundedPromptWeight, type PromptModule, type SelectedPrompt } from '../shared/prompts';
 import { splitNegativePrompt } from '../shared/negative';
 import { newId } from './id';
+import { effortSteps } from '../shared/effort';
 
 const MAX_METADATA = 1024 * 1024;
 const decoder = new TextDecoder();
@@ -125,6 +126,7 @@ export function normalizeMetadata(raw: ObjectData, width: number, height: number
       x: coord(center.x ?? c.x), y: coord(center.y ?? c.y) };
   });
   const settings: Partial<Settings> = {
+    effort: data.effort === 'medium' || /nai-diffusion-5-full-medium|NovelAI Diffusion V5 (?:93F4BD30|70AB5786)/i.test(`${data.model ?? ''} ${raw.Source ?? ''}`) ? 'medium' : 'high',
     prompt: limited(prompt, 12000), ...splitNegativePrompt(limited(text(negativeCaption.base_caption) ?? text(data.uc) ?? text(data.negative_prompt) ?? '', 12000)),
     characters, useCoords: positive.use_coords === true || data.use_coords === true,
     // Exported prompts usually already contain the quality suffix.
@@ -137,9 +139,10 @@ export function normalizeMetadata(raw: ObjectData, width: number, height: number
   };
   const steps = number(data.steps);
   if (steps !== undefined) {
-    settings.steps = Math.min(28, Math.max(23, Math.round(steps)));
+    settings.steps = effortSteps(settings.effort, steps);
     if (settings.steps !== steps) notes.push(`原图 ${steps} steps，已调整为 ${settings.steps} steps。`);
   }
+  else settings.steps = effortSteps(settings.effort, undefined);
   const guidance = number(data.scale) ?? number(data.guidance);
   if (guidance !== undefined) {
     settings.guidance = Math.min(10, Math.max(0.1, guidance));
