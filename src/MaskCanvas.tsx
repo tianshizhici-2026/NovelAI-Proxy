@@ -1,13 +1,21 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type PointerEvent } from 'react';
-import { Brush, Eraser, Trash2, Undo2, Redo2, Square, FlipHorizontal, Eye, EyeOff, Move, ZoomIn, ZoomOut, Scan, Image as ImageIcon } from 'lucide-react';
+import { Brush, Eraser, Trash2, Undo2, Redo2, Square, FlipHorizontal, Eye, EyeOff, Move, ZoomIn, ZoomOut, Scan, Pipette, Image as ImageIcon, Upload } from 'lucide-react';
 
-export type MaskHandle = { exportMask: () => string };
-type Props = { image: string; width: number; height: number; disabled: boolean; onChange: (hasMask: boolean) => void; onViewResult?: () => void };
+export type MaskHandle = { exportMask: () => string; exportImage: () => string };
+type Props = { image: string; width: number; height: number; disabled: boolean; onChange: (hasMask: boolean) => void; allowMask?: boolean; onViewResult?: () => void; onReplaceImage?: () => void };
+type Layer = 'mask' | 'paint';
 type Point = { x: number; y: number };
 type View = Point & { scale: number };
 type Gesture = { kind: 'pan'; start: Point; view: View } | { kind: 'pinch'; center: Point; distance: number; view: View };
-export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width, height, disabled, onChange, onViewResult }, ref) {
+export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width, height, disabled, onChange, allowMask = true, onViewResult, onReplaceImage }, ref) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const paintCanvas = useRef<HTMLCanvasElement>(null);
+  const base = useRef<HTMLImageElement>(null);
+  const [layer, setLayer] = useState<Layer>(allowMask ? 'mask' : 'paint');
+  const [color, setColor] = useState('#c89b75');
+  const [paintOpacity, setPaintOpacity] = useState(1);
+  const activeLayer = allowMask ? layer : 'paint';
+  const activeCanvas = () => activeLayer === 'paint' ? paintCanvas.current! : canvas.current!;
   const editor = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const [artboardWidth, setArtboardWidth] = useState(300);
@@ -17,17 +25,18 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
   const pointers = useRef(new Map<number, Point>());
   const gesture = useRef<Gesture | null>(null);
   const drawingPointer = useRef<number | null>(null);
-  const history = useRef<ImageData[]>([]);
-  const cursor = useRef(0);
+  const history = useRef<Record<Layer, ImageData[]>>({ mask: [], paint: [] });
+  const cursor = useRef<Record<Layer, number>>({ mask: 0, paint: 0 });
   const drawing = useRef(false);
   const start = useRef({ x: 0, y: 0 });
   const previous = useRef({ x: 0, y: 0 });
   const snapshot = useRef<ImageData | null>(null);
-  const [tool, setTool] = useState<'brush' | 'eraser' | 'rectangle' | 'pan'>('brush');
+  const [tool, setTool] = useState<'brush' | 'eraser' | 'rectangle' | 'pan' | 'picker'>('brush');
   const [size, setSize] = useState(48);
   const [opacity, setOpacity] = useState(0.48);
   const [visible, setVisible] = useState(true);
   const [version, setVersion] = useState(0);
+  useEffect(() => { setLayer(allowMask ? 'mask' : 'paint'); setTool('brush'); }, [allowMask]);
   useEffect(() => {
     const stage = editor.current!.closest<HTMLElement>('.stage-content');
     const resize = () => {
@@ -85,24 +94,28 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
     onChange(hasMask); setVersion(v => v + 1);
   }
   function save() {
-    const data = canvas.current!.getContext('2d')!.getImageData(0, 0, width, height);
-    history.current = [...history.current.slice(0, cursor.current + 1), data].slice(-13);
-    cursor.current = history.current.length - 1;
+    const data = activeCanvas().getContext('2d')!.getImageData(0, 0, width, height);
+    const limit = Math.max(2, Math.min(13, Math.floor(32 * 1024 * 1024 / (width * height * 4))));
+    history.current[activeLayer] = [...history.current[activeLayer].slice(0, cursor.current[activeLayer] + 1), data].slice(-limit);
+    cursor.current[activeLayer] = history.current[activeLayer].length - 1;
     changed();
   }
   function restore(direction: number) {
     if (drawing.current || disabled) return;
-    const next = cursor.current + direction;
-    if (next < 0 || next >= history.current.length) return;
-    cursor.current = next;
-    canvas.current!.getContext('2d')!.putImageData(history.current[next], 0, 0);
+    const next = cursor.current[activeLayer] + direction;
+    if (next < 0 || next >= history.current[activeLayer].length) return;
+    cursor.current[activeLayer] = next;
+    activeCanvas().getContext('2d')!.putImageData(history.current[activeLayer][next], 0, 0);
     changed();
   }
   useEffect(() => {
-    const ctx = canvas.current!.getContext('2d')!;
-    ctx.clearRect(0, 0, width, height);
-    history.current = [ctx.getImageData(0, 0, width, height)];
-    cursor.current = 0; drawing.current = false;
+    for (const [name, element] of [['mask', canvas.current!], ['paint', paintCanvas.current!]] as const) {
+      const ctx = element.getContext('2d')!;
+      ctx.clearRect(0, 0, width, height);
+      history.current[name] = [ctx.getImageData(0, 0, width, height)];
+      cursor.current[name] = 0;
+    }
+    drawing.current = false; setPaintOpacity(1);
     pointers.current.clear(); gesture.current = null; drawingPointer.current = null;
     viewRef.current = { scale: 1, x: 0, y: 0 }; setView(viewRef.current);
     onChange(false); setVersion(v => v + 1);
@@ -117,11 +130,23 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
       }
       if (event.key.toLowerCase() === 'b') setTool('brush');
       if (event.key.toLowerCase() === 'e') setTool('eraser');
+      if (event.key.toLowerCase() === 'c') { setLayer('paint'); setTool('picker'); }
     }
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   });
+  function compositedImage() {
+    if (!base.current?.complete || !base.current.naturalWidth) return null;
+    const result = document.createElement('canvas');
+    result.width = width; result.height = height;
+    const ctx = result.getContext('2d')!;
+    ctx.drawImage(base.current, 0, 0, width, height);
+    ctx.globalAlpha = paintOpacity;
+    ctx.drawImage(paintCanvas.current!, 0, 0);
+    return result;
+  }
   useImperativeHandle(ref, () => ({
+    exportImage() { return compositedImage()?.toDataURL('image/png') ?? image; },
     exportMask() {
       const ctx = canvas.current!.getContext('2d')!;
       const data = ctx.getImageData(0, 0, width, height);
@@ -134,15 +159,15 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
       result.getContext('2d')!.putImageData(data, 0, 0);
       return result.toDataURL('image/png');
     },
-  }), [width, height]);
+  }), [image, width, height, paintOpacity]);
   function point(event: PointerEvent<HTMLDivElement>) {
-    const rect = canvas.current!.getBoundingClientRect();
+    const rect = paintCanvas.current!.getBoundingClientRect();
     return { x: (event.clientX - rect.left) * width / rect.width, y: (event.clientY - rect.top) * height / rect.height };
   }
   function stroke(from: { x: number; y: number }, to: { x: number; y: number }) {
-    const ctx = canvas.current!.getContext('2d')!;
+    const ctx = activeCanvas().getContext('2d')!;
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
-    ctx.strokeStyle = '#3b82f6'; ctx.fillStyle = '#3b82f6'; ctx.lineWidth = size;
+    ctx.strokeStyle = activeLayer === 'paint' ? color : '#3b82f6'; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = size;
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
     ctx.beginPath(); ctx.arc(to.x, to.y, size / 2, 0, Math.PI * 2); ctx.fill();
@@ -160,7 +185,7 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.current.size === 2) {
       // A second finger starts navigation; undo the tentative first-finger mark.
-      if (drawing.current && snapshot.current) canvas.current!.getContext('2d')!.putImageData(snapshot.current, 0, 0);
+      if (drawing.current && snapshot.current) activeCanvas().getContext('2d')!.putImageData(snapshot.current, 0, 0);
       drawing.current = false; drawingPointer.current = null;
       gesture.current = { kind: 'pinch', ...pinchGeometry(), view: { ...viewRef.current } };
       return;
@@ -171,10 +196,16 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
     }
     const pos = point(event);
     if (pos.x < 0 || pos.x > width || pos.y < 0 || pos.y > height) return;
+    if (!base.current?.complete || !base.current.naturalWidth) return;
+    if (tool === 'picker' || event.ctrlKey || event.metaKey) {
+      const rgb = compositedImage()!.getContext('2d')!.getImageData(Math.min(width - 1, Math.floor(pos.x)), Math.min(height - 1, Math.floor(pos.y)), 1, 1).data;
+      setColor('#' + Array.from(rgb.slice(0, 3), n => n.toString(16).padStart(2, '0')).join(''));
+      setLayer('paint'); setTool('brush'); return;
+    }
     drawingPointer.current = event.pointerId; gesture.current = null;
     drawing.current = true; setVisible(true);
     start.current = pos; previous.current = pos;
-    snapshot.current = canvas.current!.getContext('2d')!.getImageData(0, 0, width, height);
+    snapshot.current = activeCanvas().getContext('2d')!.getImageData(0, 0, width, height);
     if (tool !== 'rectangle') stroke(pos, pos);
   }
   function pointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -195,8 +226,8 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
     if (!drawing.current || drawingPointer.current !== event.pointerId) return;
     const pos = point(event);
     if (tool === 'rectangle') {
-      const ctx = canvas.current!.getContext('2d')!;
-      ctx.putImageData(snapshot.current!, 0, 0); ctx.fillStyle = '#3b82f6';
+      const ctx = activeCanvas().getContext('2d')!;
+      ctx.putImageData(snapshot.current!, 0, 0); ctx.fillStyle = activeLayer === 'paint' ? color : '#3b82f6';
       ctx.fillRect(start.current.x, start.current.y, pos.x - start.current.x, pos.y - start.current.y);
     } else stroke(previous.current, pos);
     previous.current = pos;
@@ -205,7 +236,7 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
     if (!pointers.current.has(event.pointerId)) return;
     if (drawing.current && drawingPointer.current === event.pointerId) {
       drawing.current = false; drawingPointer.current = null;
-      if (event.type === 'pointercancel' && snapshot.current) canvas.current!.getContext('2d')!.putImageData(snapshot.current, 0, 0);
+      if (event.type === 'pointercancel' && snapshot.current) activeCanvas().getContext('2d')!.putImageData(snapshot.current, 0, 0);
       else save();
     }
     pointers.current.delete(event.pointerId);
@@ -215,7 +246,7 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
       gesture.current = { kind: 'pan', start: [...pointers.current.values()][0], view: { ...viewRef.current } };
     } else gesture.current = null;
   }
-  function clear() { canvas.current!.getContext('2d')!.clearRect(0, 0, width, height); save(); }
+  function clear() { activeCanvas().getContext('2d')!.clearRect(0, 0, width, height); save(); }
   function invert() {
     const ctx = canvas.current!.getContext('2d')!;
     const data = ctx.getImageData(0, 0, width, height);
@@ -227,15 +258,21 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
   }
   return <div className="mask-editor" ref={editor} data-version={version}>
     <div className="mask-controls">
+      <div className="paint-layer-controls">
+        {allowMask && <div className="paint-layer-tabs" role="group" aria-label="编辑图层"><button className={activeLayer === 'mask' ? 'active' : ''} aria-pressed={activeLayer === 'mask'} disabled={disabled} onClick={() => { setLayer('mask'); setTool('brush'); }}>蒙版</button><button className={activeLayer === 'paint' ? 'active' : ''} aria-pressed={activeLayer === 'paint'} disabled={disabled} onClick={() => { setLayer('paint'); setTool('brush'); }}>涂色</button></div>}
+        {activeLayer === 'paint' && <><label className="paint-color-control">颜色<input aria-label="涂色颜色" type="color" value={color} disabled={disabled} onChange={e => setColor(e.target.value)} /></label><button className={tool === 'picker' ? 'tool active' : 'tool'} title="取色 (C / Ctrl+点击)" aria-label="取色" disabled={disabled} onClick={() => setTool('picker')}><Pipette size={17} /></button></>}
+        <small>{activeLayer === 'mask' ? '蓝色区域将被重绘' : allowMask ? '涂色后切回蒙版，选中修改区域' : '涂改后的底图用于图生图'}</small>
+      </div>
       <div className="mask-toolbar" role="toolbar" aria-label="蒙版工具">
-        <span className="mask-heading">蒙版编辑器</span>
+        <span className="mask-heading">{activeLayer === 'mask' ? '蒙版编辑器' : '底图涂色'}</span>
         <button title="画笔 (B)" aria-label="画笔" className={tool === 'brush' ? 'tool active' : 'tool'} onClick={() => setTool('brush')} disabled={disabled}><Brush size={17} /></button>
         <button title="橡皮 (E)" aria-label="橡皮" className={tool === 'eraser' ? 'tool active' : 'tool'} onClick={() => setTool('eraser')} disabled={disabled}><Eraser size={17} /></button>
-        <button title="矩形蒙版" aria-label="矩形蒙版" className={tool === 'rectangle' ? 'tool active' : 'tool'} onClick={() => setTool('rectangle')} disabled={disabled}><Square size={16} /></button>
-        <button title="清空蒙版" aria-label="清空蒙版" className="tool clear-mask" onClick={clear} disabled={disabled}><Trash2 size={17} /></button>
-        <button className="tool" title="撤销 (Ctrl+Z)" aria-label="撤销" disabled={disabled || cursor.current === 0} onClick={() => restore(-1)}><Undo2 size={17} /></button>
-        <button className="tool" title="重做 (Ctrl+Shift+Z)" aria-label="重做" disabled={disabled || cursor.current >= history.current.length - 1} onClick={() => restore(1)}><Redo2 size={17} /></button>
-        <button className="tool" title="反转蒙版" aria-label="反转蒙版" disabled={disabled} onClick={invert}><FlipHorizontal size={16} /></button>
+        <button title={activeLayer === 'mask' ? '矩形蒙版' : '矩形涂色'} aria-label={activeLayer === 'mask' ? '矩形蒙版' : '矩形涂色'} className={tool === 'rectangle' ? 'tool active' : 'tool'} onClick={() => setTool('rectangle')} disabled={disabled}><Square size={16} /></button>
+        <button title={activeLayer === 'mask' ? '清空蒙版' : '清空涂色'} aria-label={activeLayer === 'mask' ? '清空蒙版' : '清空涂色'} className="tool clear-mask" onClick={clear} disabled={disabled}><Trash2 size={17} /></button>
+        <button className="tool" title="撤销 (Ctrl+Z)" aria-label="撤销" disabled={disabled || cursor.current[activeLayer] === 0} onClick={() => restore(-1)}><Undo2 size={17} /></button>
+        <button className="tool" title="重做 (Ctrl+Shift+Z)" aria-label="重做" disabled={disabled || cursor.current[activeLayer] >= history.current[activeLayer].length - 1} onClick={() => restore(1)}><Redo2 size={17} /></button>
+        {activeLayer === 'mask' && <button className="tool" title="反转蒙版" aria-label="反转蒙版" disabled={disabled} onClick={invert}><FlipHorizontal size={16} /></button>}
+        {onReplaceImage && <button className="tool" title="更换参考图" aria-label="更换参考图" disabled={disabled} onClick={onReplaceImage}><Upload size={16} /></button>}
         {onViewResult && <button className="tool" title="查看结果" aria-label="查看结果" onClick={onViewResult}><ImageIcon size={17} /></button>}
       </div>
       <label className="brush-control">笔刷 <input aria-label="笔刷大小" type="range" min="4" max="200" value={size} onChange={e => setSize(Number(e.target.value))} disabled={disabled} /><span>{size}px</span></label>
@@ -243,8 +280,9 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
     <div className="mask-viewport" ref={viewport} style={{ height: viewportHeight, cursor: disabled ? 'wait' : tool === 'pan' ? 'grab' : 'crosshair' }}
       aria-label="重绘画布视口" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} onLostPointerCapture={pointerUp}>
       <div className="mask-artboard" style={{ aspectRatio: `${width}/${height}`, width: artboardWidth, height: artboardWidth * height / width, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
-        <img src={image} alt="局部重绘底图" draggable={false} />
-        <canvas ref={canvas} width={width} height={height} style={{ opacity: visible ? opacity : 0 }} aria-label="重绘蒙版画布" />
+        <img ref={base} src={image} alt={allowMask ? '局部重绘底图' : '图生图 参考图'} draggable={false} />
+        <canvas ref={paintCanvas} width={width} height={height} style={{ opacity: paintOpacity }} aria-label="底图涂色画布" />
+        <canvas ref={canvas} width={width} height={height} style={{ opacity: allowMask && activeLayer === 'mask' && visible ? opacity : 0 }} aria-label="重绘蒙版画布" />
       </div>
     </div>
     <div className="mask-footer">
@@ -257,8 +295,8 @@ export default forwardRef<MaskHandle, Props>(function MaskCanvas({ image, width,
           <button className="tool" title="适应画布" aria-label="适应画布" disabled={disabled} onClick={resetView}><Scan size={17} /></button>
         </div>
       </div>
-      <label>透明度 <input aria-label="蒙版透明度" type="range" min="0.15" max="0.8" step="0.05" value={opacity} onChange={e => setOpacity(Number(e.target.value))} /></label>
-      <button className="tool" title={visible ? '隐藏蒙版' : '显示蒙版'} aria-label="显示或隐藏蒙版" onClick={() => setVisible(v => !v)}>{visible ? <Eye size={16} /> : <EyeOff size={16} />}</button>
+      <label>透明度 <input aria-label={activeLayer === 'mask' ? '蒙版透明度' : '涂色透明度'} type="range" min={activeLayer === 'mask' ? '0.15' : '0.05'} max={activeLayer === 'mask' ? '0.8' : '1'} step="0.05" value={activeLayer === 'mask' ? opacity : paintOpacity} disabled={disabled} onChange={e => activeLayer === 'mask' ? setOpacity(Number(e.target.value)) : setPaintOpacity(Number(e.target.value))} /></label>
+      {activeLayer === 'mask' && <button className="tool" title={visible ? '隐藏蒙版' : '显示蒙版'} aria-label="显示或隐藏蒙版" onClick={() => setVisible(v => !v)}>{visible ? <Eye size={16} /> : <EyeOff size={16} />}</button>}
     </div>
   </div>;
 });
