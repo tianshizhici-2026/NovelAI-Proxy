@@ -4,6 +4,7 @@ import { zipSync, strToU8 } from 'fflate';
 import { DEFAULT_SETTINGS, RESOLUTIONS, type GenerationMode, type GenerationJobStatus, type HistoryEntry, type Resolution, type ServiceStatus, type Settings } from '../shared/types';
 import { DEFAULT_NEGATIVE_PROMPT, splitNegativePrompt } from '../shared/negative';
 import Characters from './Characters';
+import PromptField from './PromptField';
 import MaskCanvas, { type MaskHandle } from './MaskCanvas';
 import PromptSheet from './PromptSheet';
 import ImageViewport from './ImageViewport';
@@ -339,10 +340,9 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     <div className="panel-heading"><span><Layers size={16} />创作提示词</span><button className="tool mobile-only" onClick={() => setMobilePanel(null)} aria-label="关闭提示词面板"><X size={18} /></button></div>
     <div className="prompt-scroll">
       <section className="prompt-fields" aria-label="提示词输入">
-        <div className="prompt-label"><label htmlFor="base-prompt">提示词</label><span>Prompt</span></div>
-        <div className="prompt-editor"><textarea id="base-prompt" maxLength={12000} rows={7} placeholder={'描述你想创作的画面…\n\n例如：1girl, outdoors, cherry blossoms, soft lighting'} value={settings.prompt} onChange={e => patch({ prompt: e.target.value })} /><div className="editor-footer"><span /><span>{settings.prompt.length.toLocaleString()} 字符</span></div></div>
-        <details className="character-negative global-negative"><summary>负面提示词</summary><textarea id="negative-prompt" aria-label="负面提示词" maxLength={12000} rows={3} placeholder="" value={settings.negativePrompt} disabled={settings.effort === 'medium'} onChange={e => patch({ negativePrompt: e.target.value })} />{settings.effort === 'medium' && <p className="setting-hint">Medium 使用固定负面预设，切回 High 可编辑。</p>}</details>
-        <details className="character-negative global-negative"><summary>负数权重</summary><textarea id="negative-weights" aria-label="负数权重" maxLength={12000} rows={3} placeholder="" value={settings.negativeWeights ?? ''} onChange={e => patch({ negativeWeights: e.target.value })} /><p className="setting-hint">3::hands:: 会按 -3::hands:: 提交；普通词默认 -1。多个词用逗号分隔。</p></details>
+        <PromptField id="base-prompt" label="提示词" subtitle="Prompt" value={settings.prompt} onChange={prompt => patch({ prompt })} placeholder={'描述你想创作的画面…\n\n例如：1girl, outdoors, cherry blossoms, soft lighting'} />
+        <PromptField id="negative-prompt" label="负面提示词" subtitle="Negative" collapsible value={settings.negativePrompt} disabled={settings.effort === 'medium'} onChange={negativePrompt => patch({ negativePrompt })} help={settings.effort === 'medium' && <p className="setting-hint">Medium 使用固定负面预设，切回 High 可编辑。</p>} />
+        <PromptField id="negative-weights" label="负数权重" subtitle="Negative weight" collapsible value={settings.negativeWeights ?? ''} onChange={negativeWeights => patch({ negativeWeights })} help={<p className="setting-hint">3::hands:: 会按 -3::hands:: 提交；普通词默认 -1。多个词用逗号分隔。</p>} />
       </section>
       {user.role === 'admin' ? <PromptModules selected={settings.promptModules ?? []} onChange={promptModules => patch({ promptModules, qualityTags: false })} /> : <label className="toggle-row quality-row"><span><Sparkles size={15} />添加质量词</span><input type="checkbox" checked={settings.qualityTags} onChange={e => patch({ qualityTags: e.target.checked })} /><i className="switch" /></label>}
       <Characters characters={settings.characters} useCoords={settings.useCoords} disabled={false} negativeDisabled={settings.effort === 'medium'} onChange={characters => patch({ characters })} onCoordsChange={useCoords => patch({ useCoords })} aspectRatio={resolution.width / resolution.height} />
