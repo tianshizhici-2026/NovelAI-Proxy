@@ -42,7 +42,7 @@ with sync_playwright() as p:
     original_height = sheet.bounding_box()['height']
     assert abs(original_height - 844) < 2
     assert abs(sheet.bounding_box()['y']) < 2
-    page.get_by_label('场景提示词', exact=True).fill('preserved draft')
+    page.get_by_label('提示词', exact=True).fill('preserved draft')
     page.screenshot(path=str(ARTIFACTS / 'prompt-sheet-open-mobile.png'))
     grip = page.get_by_role('button', name='拖动提示词面板：上滑展开，下拖收起', exact=True)
     x, y = center(grip)
@@ -57,7 +57,7 @@ with sync_playwright() as p:
     page.screenshot(path=str(ARTIFACTS / 'prompt-sheet-collapsed-mobile.png'))
     peek.click()
     expect(sheet).to_be_visible()
-    expect(page.get_by_label('场景提示词', exact=True)).to_have_value('preserved draft')
+    expect(page.get_by_label('提示词', exact=True)).to_have_value('preserved draft')
     for _ in range(3):
         page.get_by_label('添加角色', exact=True).click()
     scroll = page.locator('.prompt-sheet .prompt-scroll')

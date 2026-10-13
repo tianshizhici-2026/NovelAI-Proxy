@@ -56,7 +56,7 @@ with sync_playwright() as p:
     page.get_by_role('button', name='预览 UI artist', exact=True).click()
     expect(page.get_by_role('dialog', name='提示词预览')).to_be_visible()
     page.get_by_role('button', name='关闭提示词预览').click()
-    page.get_by_label('场景提示词', exact=True).fill('forest')
+    page.get_by_label('提示词', exact=True).fill('forest')
     page.get_by_role('button', name='大竖图', exact=False).click()
     expect(page.get_by_label('允许使用 Anlas', exact=True)).to_be_checked()
     expect(page.locator('.anlas-settings')).to_contain_text('39 Anlas')

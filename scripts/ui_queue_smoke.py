@@ -42,13 +42,13 @@ async def main():
         await page.route('**/api/generate', generated)
         await page.route('**/api/queue/*', lambda route: route.fulfill(json=job))
         await page.goto('http://127.0.0.1:6006')
-        await page.get_by_label('场景提示词', exact=True).fill('forest')
+        await page.get_by_label('提示词', exact=True).fill('forest')
         await page.get_by_role('button', name='生成图像', exact=True).click()
         await expect(page.locator('.generate-button')).to_contain_text('排队中 · 第 3 位')
         await expect(page.locator('.working-overlay strong')).to_have_text('排队中 · 第 3 位')
         assert len(ids) == 1
-        await expect(page.get_by_label('场景提示词', exact=True)).to_be_enabled()
-        await page.get_by_label('场景提示词', exact=True).fill('next scene')
+        await expect(page.get_by_label('提示词', exact=True)).to_be_enabled()
+        await page.get_by_label('提示词', exact=True).fill('next scene')
         await expect(page.get_by_label('负面提示词', exact=True)).to_be_enabled()
         await page.get_by_label('负面提示词', exact=True).fill('next negative')
         await expect(page.get_by_label('添加角色', exact=True)).to_be_enabled()
@@ -61,7 +61,7 @@ async def main():
         finish.set()
         await expect(page.get_by_alt_text('当前生成结果', exact=True)).to_be_visible()
         await expect(page.get_by_role('button', name='生成图像', exact=True)).to_be_enabled()
-        await expect(page.get_by_label('场景提示词', exact=True)).to_have_value('next scene')
+        await expect(page.get_by_label('提示词', exact=True)).to_have_value('next scene')
         assert len(ids) == 1, 'polling must not resubmit the job'
         full = True
         await page.get_by_role('button', name='生成图像', exact=True).click()

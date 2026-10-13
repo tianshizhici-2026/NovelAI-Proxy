@@ -38,7 +38,7 @@ with sync_playwright() as p:
     page.route('**/api/generate',generate)
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.goto('http://127.0.0.1:6006')
-    page.get_by_label('场景提示词',exact=True).fill('tan skin, tan lines')
+    page.get_by_label('提示词',exact=True).fill('tan skin, tan lines')
     page.get_by_label('上传重绘底图',exact=True).set_input_files({'name':'paint.png','mimeType':'image/png','buffer':source})
     expect(page.get_by_alt_text('局部重绘底图',exact=True)).to_be_visible()
     page.wait_for_function('document.querySelector(".mask-artboard img").naturalWidth === 832')

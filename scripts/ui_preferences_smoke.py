@@ -71,7 +71,7 @@ with sync_playwright() as p:
     page.route('**/api/generate', generated)
     page.goto('http://localhost:6006', wait_until='domcontentloaded')
     expect(page.get_by_label('默认负面提示词', exact=True)).to_be_checked()
-    page.get_by_label('场景提示词', exact=True).fill('house')
+    page.get_by_label('提示词', exact=True).fill('house')
     page.get_by_label('负面提示词', exact=True).fill('blurry')
     desktop_font = font(page.locator('label[for="base-prompt"]'))
     for text in ['完整模型 · 多角色创作', '历史保存在当前浏览器', '0 Anlas 模式', '0 Anlas']:

@@ -78,12 +78,12 @@ with sync_playwright() as p:
         print('Checking import:', name, flush=True)
         if page.get_by_label('关闭提示', exact=True).count():
             page.get_by_label('关闭提示', exact=True).click()
-        page.get_by_label('场景提示词', exact=True).fill('existing draft')
+        page.get_by_label('提示词', exact=True).fill('existing draft')
         page.get_by_label('上传图片导入元数据', exact=True).set_input_files({'name': name, 'mimeType': mime, 'buffer': data})
         expect(page.get_by_role('button', name='导入元数据', exact=True)).to_be_enabled(timeout=15000)
         print('Import notice:', page.locator('.toast').all_text_contents(), flush=True)
         try:
-            expect(page.get_by_label('场景提示词', exact=True)).to_have_value('2girls, 夜景', timeout=15000)
+            expect(page.get_by_label('提示词', exact=True)).to_have_value('2girls, 夜景', timeout=15000)
         except Exception:
             print({'notice': page.locator('.toast').all_text_contents(), 'errors': errors}, flush=True)
             page.screenshot(path=str(ARTIFACTS / 'metadata-error.png'), full_page=True)
@@ -99,7 +99,7 @@ with sync_playwright() as p:
         assert draft['qualityTags'] is False and draft['resolution'] == 'square'
     page.get_by_label('上传图片导入元数据', exact=True).set_input_files({'name': 'blank.png', 'mimeType': 'image/png', 'buffer': blank})
     expect(page.get_by_role('alert')).to_contain_text('没有可导入')
-    expect(page.get_by_label('场景提示词', exact=True)).to_have_value('2girls, 夜景')
+    expect(page.get_by_label('提示词', exact=True)).to_have_value('2girls, 夜景')
     page.reload(wait_until='domcontentloaded')
     assert page.evaluate("JSON.parse(localStorage.getItem('novelai-draft')).characters[0].x") == 0
     page.screenshot(path=str(ARTIFACTS / 'pink-desktop.png'), full_page=True)

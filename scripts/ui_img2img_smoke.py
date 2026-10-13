@@ -45,7 +45,7 @@ with sync_playwright() as p:
     expect(page.get_by_alt_text('图生图 参考图', exact=True)).to_be_visible()
     box = page.locator('.reference-editor button').bounding_box()
     assert box['y'] >= 0 and box['y'] + box['height'] <= 1000
-    page.get_by_label('场景提示词', exact=True).fill('forest 漫画')
+    page.get_by_label('提示词', exact=True).fill('forest 漫画')
     page.get_by_label('负面提示词', exact=True).fill('blurry')
     page.get_by_label('图生图 Strength 数值', exact=True).fill('0.63')
     page.get_by_label('图生图 Noise 数值', exact=True).fill('0.27')
@@ -57,9 +57,9 @@ with sync_playwright() as p:
     assert request['mode'] == 'img2img' and request['strength'] == 0.63 and request['noise'] == 0.27
     assert request['image'].startswith('data:image/png;base64,') and 'mask' not in request
     expect(page.get_by_role('button', name='下载图片', exact=True)).to_have_count(0)
-    page.get_by_label('场景提示词', exact=True).fill('changed draft')
+    page.get_by_label('提示词', exact=True).fill('changed draft')
     page.get_by_role('button', name='复制提示词', exact=True).click()
-    expect(page.get_by_label('场景提示词', exact=True)).to_have_value('forest 漫画')
+    expect(page.get_by_label('提示词', exact=True)).to_have_value('forest 漫画')
     for width, height in [(320, 568), (390, 844), (768, 1024)]:
         page.set_viewport_size({'width': width, 'height': height})
         for name in ['继续重绘', '复制提示词', '用作参考图']:
@@ -98,25 +98,25 @@ with sync_playwright() as p:
         assert metadata['seed'] == 987654 and metadata['mode'] == 'img2img'
         assert metadata['strength'] == 0.63 and metadata['noise'] == 0.27
     page.get_by_role('button', name='文生图', exact=True).click()
-    page.get_by_label('场景提示词', exact=True).fill('replace this')
+    page.get_by_label('提示词', exact=True).fill('replace this')
     page.get_by_label('上传图片导入元数据', exact=True).set_input_files(downloaded)
-    expect(page.get_by_label('场景提示词', exact=True)).to_have_value('forest 漫画')
+    expect(page.get_by_label('提示词', exact=True)).to_have_value('forest 漫画')
     page.get_by_role('button', name='图生图', exact=True).click()
     expect(page.get_by_label('图生图 Strength 数值', exact=True)).to_have_value('0.63')
     expect(page.get_by_label('图生图 Noise 数值', exact=True)).to_have_value('0.27')
-    page.get_by_label('场景提示词', exact=True).fill('overwrite this on reference upload')
+    page.get_by_label('提示词', exact=True).fill('overwrite this on reference upload')
     page.get_by_label('负面提示词', exact=True).fill('replace negative')
     page.get_by_label('图生图 Strength 数值', exact=True).fill('0.12')
     page.get_by_label('图生图 Noise 数值', exact=True).fill('0.09')
     page.get_by_label('上传 图生图 参考图', exact=True).set_input_files(downloaded)
     expect(page.locator('.toast')).to_contain_text('并覆盖提示词、角色和生成参数')
-    expect(page.get_by_label('场景提示词', exact=True)).to_have_value('forest 漫画')
+    expect(page.get_by_label('提示词', exact=True)).to_have_value('forest 漫画')
     expect(page.get_by_label('负面提示词', exact=True)).to_have_value('blurry')
     expect(page.get_by_label('图生图 Strength 数值', exact=True)).to_have_value('0.63')
     expect(page.get_by_label('图生图 Noise 数值', exact=True)).to_have_value('0.27')
     page.get_by_label('上传 图生图 参考图', exact=True).set_input_files(reference)
     expect(page.locator('.toast')).to_contain_text('可调整 Strength 和 Noise')
-    expect(page.get_by_label('场景提示词', exact=True)).to_have_value('forest 漫画')
+    expect(page.get_by_label('提示词', exact=True)).to_have_value('forest 漫画')
     expect(page.get_by_label('图生图 Strength 数值', exact=True)).to_have_value('0.63')
     expect(page.get_by_label('图生图 Noise 数值', exact=True)).to_have_value('0.27')
     for width, height in [(320, 568), (390, 844), (768, 1024)]:

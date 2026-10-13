@@ -19,7 +19,7 @@ with sync_playwright() as p:
     page.get_by_label('账号',exact=True).fill('preview-user')
     page.get_by_label('密码',exact=True).fill('preview-password')
     page.get_by_role('button',name='进入创作工作台').click()
-    expect(page.get_by_label('场景提示词',exact=True)).to_have_value('')
+    expect(page.get_by_label('提示词',exact=True)).to_have_value('')
     assert page.locator('#base-prompt').evaluate('(e)=>!e.closest("details")')
     groups=page.locator('.global-negative')
     expect(groups).to_have_count(2)
@@ -40,7 +40,7 @@ with sync_playwright() as p:
     page.get_by_label('负面提示词',exact=True).fill('open hands')
     page.locator('.global-negative > summary').filter(has_text='负数权重').click()
     page.get_by_label('负数权重',exact=True).fill('3::hands::, .35::hat::, -2::glasses::')
-    page.get_by_label('场景提示词',exact=True).fill('1girl, outdoors')
+    page.get_by_label('提示词',exact=True).fill('1girl, outdoors')
     with page.expect_response('**/api/generate') as generated:
         page.get_by_role('button',name='生成图像',exact=True).click()
     response=generated.value;assert response.status==200
@@ -55,7 +55,7 @@ with sync_playwright() as p:
     expect(page.get_by_label('负数权重',exact=True)).to_have_value('3::hands::, .35::hat::, -2::glasses::')
     # Importing a result restores each separate field and does not duplicate its weighted suffix.
     page.get_by_label('上传图片导入元数据',exact=True).set_input_files({'name':'negative.png','mimeType':'image/png','buffer':png})
-    expect(page.get_by_label('场景提示词',exact=True)).to_have_value('1girl, outdoors')
+    expect(page.get_by_label('提示词',exact=True)).to_have_value('1girl, outdoors')
     expect(page.get_by_label('负数权重',exact=True)).to_have_value('3::hands::, .35::hat::, -2::glasses::')
     page.get_by_role('button',name='Medium',exact=True).click()
     expect(toggle).to_be_checked();expect(toggle).to_be_disabled()

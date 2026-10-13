@@ -45,7 +45,7 @@ with sync_playwright() as p:
     page.route("**/api/generate", generated)
     page.locator(".connection-status").click()
     expect(page.locator(".connection-status")).to_contain_text("已连接")
-    page.get_by_label("场景提示词", exact=True).fill("2girls, outdoors, soft lighting")
+    page.get_by_label("提示词", exact=True).fill("2girls, outdoors, soft lighting")
     page.get_by_label("负面提示词", exact=True).fill("blurry")
     page.get_by_label("添加角色", exact=True).click()
     page.get_by_label("角色 1 提示词", exact=True).fill("girl, silver hair")
@@ -97,7 +97,7 @@ with sync_playwright() as p:
     assert any(0 < value < 255 for value in selection.getdata())
     page.reload(wait_until="domcontentloaded")
     expect(page.locator(".history-item")).to_have_count(2)
-    expect(page.get_by_label("场景提示词", exact=True)).to_have_value("2girls, outdoors, soft lighting")
+    expect(page.get_by_label("提示词", exact=True)).to_have_value("2girls, outdoors, soft lighting")
     with page.expect_download() as download:
         page.get_by_label("下载全部历史", exact=True).click()
     archive = zipfile.ZipFile(download.value.path())
@@ -115,8 +115,8 @@ with sync_playwright() as p:
         assert abs(canvas["width"] / canvas["height"] - 1) < 0.01, f"distorted image at {width}"
     page.screenshot(path=str(ARTIFACTS / "mobile-inpaint.png"), full_page=True)
     page.locator(".mobile-nav").get_by_role("button", name="提示词", exact=True).click()
-    expect(page.get_by_label("场景提示词", exact=True)).to_be_visible()
-    page.get_by_label("场景提示词", exact=True).fill("mobile draft")
+    expect(page.get_by_label("提示词", exact=True)).to_be_visible()
+    page.get_by_label("提示词", exact=True).fill("mobile draft")
     page.get_by_label("关闭提示词面板", exact=True).click()
     page.locator(".mobile-nav").get_by_role("button", name="设置", exact=True).click()
     expect(page.get_by_label("Guidance 数值", exact=True)).to_be_visible()

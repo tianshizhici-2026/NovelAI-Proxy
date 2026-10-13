@@ -32,7 +32,7 @@ with sync_playwright() as p:
     expect(page.get_by_label('Seed 数值', exact=True)).to_have_attribute('readonly', '')
     initial_seed = page.get_by_label('Seed 数值', exact=True).input_value()
     assert 0 <= int(initial_seed) <= 4294967295
-    page.get_by_label('场景提示词', exact=True).fill('seed test')
+    page.get_by_label('提示词', exact=True).fill('seed test')
     page.get_by_role('button', name='锁定 Seed', exact=True).click()
     expect(page.get_by_label('Seed 数值', exact=True)).to_have_value(initial_seed)
     page.get_by_label('Seed 数值', exact=True).fill('0')

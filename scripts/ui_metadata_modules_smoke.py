@@ -23,7 +23,7 @@ file = {'name':'legacy.png','mimeType':'image/png','buffer':png(original)}
 
 def draft(page): return page.evaluate("JSON.parse(localStorage.getItem('novelai-draft'))")
 def check(page):
-    expect(page.get_by_label('场景提示词', exact=True)).to_have_value(REMAINING)
+    expect(page.get_by_label('提示词', exact=True)).to_have_value(REMAINING)
     value = draft(page)
     assert {m['prompt']:m['weight'] for m in value['promptModules']} == EXPECTED, value
     assert all(any(t['id']==m['id'] and t['prompt']==m['prompt'] for t in LIBRARY) for m in value['promptModules'])
@@ -52,7 +52,7 @@ with sync_playwright() as p:
     page.get_by_role('button',name='生成图像',exact=True).click()
     expect(page.get_by_role('button',name='继续重绘',exact=True)).to_be_enabled()
     assert {m['prompt']:m['weight'] for m in requests[-1]['promptModules']}==EXPECTED
-    page.get_by_label('场景提示词',exact=True).fill('changed')
+    page.get_by_label('提示词',exact=True).fill('changed')
     page.get_by_role('button',name='复制提示词',exact=True).click();check(page)
     page.get_by_label('上传 图生图 参考图',exact=True).set_input_files(file)
     expect(page.get_by_alt_text('图生图 参考图',exact=True)).to_be_visible();check(page)
@@ -76,6 +76,6 @@ with sync_playwright() as p:
     user.goto('http://127.0.0.1:6006')
     modular={'name':'modular.png','mimeType':'image/png','buffer':png({'prompt':'forest','qualityToggle':False,'novelai_proxy_modules':[{'id':'old-id','category':'artist','prompt':'artist:chen bin','weight':.21}]})}
     user.get_by_label('上传图片导入元数据',exact=True).set_input_files(modular)
-    expect(user.get_by_label('场景提示词',exact=True)).to_have_value('0.2::artist:chen bin::, forest')
+    expect(user.get_by_label('提示词',exact=True)).to_have_value('0.2::artist:chen bin::, forest')
     assert not errors, errors
     browser.close();print('Legacy metadata extraction, rounding, generation, img2img, history, seed, persistence, mobile and ordinary-user imports passed.')

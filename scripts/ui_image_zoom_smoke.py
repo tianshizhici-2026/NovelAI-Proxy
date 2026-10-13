@@ -56,7 +56,7 @@ with sync_playwright() as p:
     page.route('**/api/generate', lambda route: route.fulfill(body=png, content_type='image/png'))
     page.route('**/api/queue/*', lambda route: route.fulfill(json={'state': 'running', 'position': 0, 'generating': True, 'waiting': 0, 'capacity': 5}))
     page.goto('http://127.0.0.1:6006')
-    page.get_by_label('场景提示词', exact=True).fill('zoom verification')
+    page.get_by_label('提示词', exact=True).fill('zoom verification')
     page.get_by_label('上传 图生图 参考图', exact=True).set_input_files({'name': 'reference.png', 'mimeType': 'image/png', 'buffer': png})
     picture = page.get_by_alt_text('图生图 参考图', exact=True)
     expect(picture).to_be_visible()
