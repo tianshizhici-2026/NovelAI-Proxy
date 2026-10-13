@@ -4,8 +4,23 @@ import { DEFAULT_SETTINGS, RESOLUTIONS, FREE_RESOLUTIONS } from '../shared/types
 import { buildPayload, eligibleSubscription, inputSchema } from './policy.js';
 import { DEFAULT_NEGATIVE_PROMPT } from '../shared/negative.js';
 import { MEDIUM_NEGATIVE_PROMPT } from '../shared/effort.js';
+import { negativeWeightedPrompt } from '../shared/prompts.js';
 
 const input = { ...DEFAULT_SETTINGS, mode: 'generate' as const, prompt: '1girl, outdoors' };
+test('negative weight input converts magnitudes and quotes numeric tag text without altering UC', () => {
+  assert.equal(negativeWeightedPrompt('3::hands, feet::, .35::hat::, -2::glasses::, plain, 0::neutral::'), '-3::hands::, -3::feet::, -0.35::hat::, -2::glasses::, -1::plain::, 0::neutral::');
+  assert.equal(negativeWeightedPrompt('0.3::artist:"docy520"::, year 2025, "tag 123"'), '-0.3::artist:"docy520"::, -1::"year 2025"::, -1::"tag 123"::');
+  const data = inputSchema.parse({ ...input, negativeWeights: '3::hands::', negativePrompt: 'open hands', defaultNegative: false });
+  const payload = buildPayload(data);
+  assert.ok(payload.input.endsWith('-3::hands::'));
+  assert.equal(payload.parameters.v4_prompt.caption.base_caption, payload.input);
+  assert.equal(payload.parameters.negative_prompt, 'open hands');
+  assert.equal(payload.parameters.v4_negative_prompt.caption.base_caption, 'open hands');
+  const { negativeWeights: _unused, ...legacy } = input;
+  assert.equal(inputSchema.parse(legacy).negativeWeights, '');
+  assert.equal(inputSchema.safeParse({ ...input, negativeWeights: '9'.repeat(310) + '::hands::' }).success, false);
+  assert.equal(inputSchema.safeParse({ ...input, negativeWeights: 'a, '.repeat(4000) }).success, false);
+});
 test('Medium requires 14 steps, uses corresponding models and fixed negatives in every mode', () => {
   const { effort: _effort, ...legacy } = input;
   assert.equal(inputSchema.parse(legacy).effort, 'high');

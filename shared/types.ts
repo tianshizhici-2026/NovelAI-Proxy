@@ -24,6 +24,7 @@ export type Settings = {
   prompt: string;
   negativePrompt: string;
   qualityTags: boolean;
+  negativeWeights?: string;
   defaultNegative: boolean;
   resolution: Resolution;
   steps: number;
@@ -64,7 +65,7 @@ export type HistoryEntry = {
   imageHeight?: number;
 };
 export const DEFAULT_SETTINGS: Settings = {
-  prompt: '', negativePrompt: '', qualityTags: true, defaultNegative: true,
+  prompt: '', negativePrompt: '', negativeWeights: '', qualityTags: true, defaultNegative: true,
   resolution: 'portrait', effort: 'high', steps: 23, guidance: 7,
   characters: [], useCoords: false, strength: 0.55, noise: 0.2, seed: null,
 };

@@ -23,6 +23,15 @@ export function composedPrompt(prompt: string, modules: SelectedPrompt[] = []) {
   return [...modules.filter(m => m.category === 'artist').map(weighted), quoteNumericTags(prompt.trim()),
     ...modules.filter(m => m.category === 'quality').map(weighted)].filter(Boolean).join(', ');
 }
+// This separate input describes concepts to suppress in the positive caption.
+// Keep magnitudes (including fractional weights), but always use a negative sign.
+export function negativeWeightedPrompt(source: string) {
+  return promptTokens(source).map(token => {
+    if (!Number.isFinite(token.weight)) throw new Error('负数权重必须是有限数字。');
+    const weight = -Math.abs(token.weight);
+    return `${weight}::${quoteNumericTags(token.text, true)}::`;
+  }).join(', ');
+}
 function weighted(module: SelectedPrompt) {
   return `${module.weight.toFixed(1)}::${quoteNumericTags(module.prompt.trim(), true)}::`;
 }

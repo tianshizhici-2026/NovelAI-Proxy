@@ -42,6 +42,28 @@ async function fixture(fn: (request: (route: string, body?: unknown, user?: stri
   finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(dir, { recursive: true, force: true }); }
 }
 const baseInput = { ...DEFAULT_SETTINGS, prompt: 'forest', seed: 12, mode: 'generate' };
+test('negative weights reach all High/Medium generation modes for users and round-trip without duplicate captions', async () => {
+  await fixture(async (request, generated) => {
+    const image = await sharp({ create: { width: 832, height: 1216, channels: 3, background: '#abc' } }).png().toBuffer();
+    for (const effort of ['high', 'medium']) for (const mode of ['generate', 'img2img', 'inpaint']) {
+      const response = await request('/api/generate', { ...baseInput, prompt: 'forest', mode, effort, steps: effort === 'medium' ? 14 : 23,
+        negativeWeights: '3::hands::, hat', negativePrompt: 'open hands', defaultNegative: false,
+        ...(mode === 'generate' ? {} : { image: `data:image/png;base64,${image.toString('base64')}` }),
+        ...(mode === 'inpaint' ? { mask: `data:image/png;base64,${image.toString('base64')}` } : {}),
+      }, 'user');
+      assert.equal(response.status, 200);
+      const payload = generated.at(-1)!;
+      assert.ok(payload.input.endsWith('-3::hands::, -1::hat::'));
+      assert.equal(payload.parameters.v4_prompt.caption.base_caption, payload.input);
+      if (effort === 'high') assert.equal(payload.parameters.negative_prompt, 'open hands');
+      const result = Buffer.from(await response.arrayBuffer());
+      const imported = normalizeMetadata(pngMetadata(result), 832, 1216).settings;
+      assert.equal(imported.prompt, 'forest');
+      assert.equal(imported.negativeWeights, '3::hands::, hat');
+      assert.equal(imported.effort, effort);
+    }
+  });
+});
 test('Medium works for ordinary users in all modes and restores effort/seed/modules from result metadata', async () => {
   await fixture(async (request, generated) => {
     const image = await sharp({ create: { width: 832, height: 1216, channels: 3, background: '#abc' } }).png().toBuffer();

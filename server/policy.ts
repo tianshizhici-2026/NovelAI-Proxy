@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { z } from 'zod';
 import { RESOLUTIONS } from '../shared/types.js';
 import { combinedNegativePrompt } from '../shared/negative.js';
-import { composedPrompt, quoteNumericTags } from '../shared/prompts.js';
+import { composedPrompt, negativeWeightedPrompt, quoteNumericTags } from '../shared/prompts.js';
 import { MEDIUM_NEGATIVE_PROMPT, MEDIUM_STEPS } from '../shared/effort.js';
 
 const character = z.object({
@@ -13,6 +13,7 @@ const character = z.object({
 export const inputSchema = z.object({
   mode: z.enum(['generate', 'inpaint', 'img2img']),
   prompt: z.string().max(12000), negativePrompt: z.string().max(12000),
+  negativeWeights: z.string().max(12000).default(''),
   qualityTags: z.boolean(), resolution: z.enum(Object.keys(RESOLUTIONS) as [keyof typeof RESOLUTIONS, ...(keyof typeof RESOLUTIONS)[]]),
   defaultNegative: z.boolean().default(false),
   effort: z.enum(['high', 'medium']).default('high'),
@@ -37,8 +38,12 @@ export const inputSchema = z.object({
     ctx.addIssue({ code: 'custom', path: ['image'], message: 'Image2Image 需要参考图，不能附带蒙版。' });
   if (data.mode === 'generate' && (data.image || data.mask))
     ctx.addIssue({ code: 'custom', path: ['image'], message: '文生图不能附带底图或蒙版。' });
-  if (composedPrompt(data.prompt, data.promptModules).length > 24000)
-    ctx.addIssue({ code: 'custom', path: ['prompt'], message: '拼装后的提示词过长，请减少模块。' });
+  try {
+    if ([composedPrompt(data.prompt, data.promptModules), negativeWeightedPrompt(data.negativeWeights)].filter(Boolean).join(', ').length > 24000)
+      ctx.addIssue({ code: 'custom', path: ['prompt'], message: '拼装后的提示词过长，请减少模块或负数权重词。' });
+  } catch {
+    ctx.addIssue({ code: 'custom', path: ['negativeWeights'], message: '负数权重必须是有限数字。' });
+  }
 });
 export type ValidatedInput = z.infer<typeof inputSchema>;
 export class ApiError extends Error {
@@ -62,7 +67,7 @@ export function eligibleSubscription(raw: unknown, minUsagePercent = 1, now = Da
 
 export function buildPayload(input: ValidatedInput, images?: { image: string; mask?: string }) {
   const { width, height } = RESOLUTIONS[input.resolution];
-  const prompt = [composedPrompt(input.prompt, input.promptModules), input.qualityTags ? 'very aesthetic, masterpiece, no text' : ''].filter(Boolean).join(', ');
+  const prompt = [composedPrompt(input.prompt, input.promptModules), input.qualityTags ? 'very aesthetic, masterpiece, no text' : '', negativeWeightedPrompt(input.negativeWeights)].filter(Boolean).join(', ');
   const medium = input.effort === 'medium';
   const negativePrompt = medium ? MEDIUM_NEGATIVE_PROMPT : quoteNumericTags(combinedNegativePrompt(input.negativePrompt, input.defaultNegative));
   const characters = input.characters.filter(c => c.enabled && c.prompt.trim());

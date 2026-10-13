@@ -27,6 +27,7 @@ function initialSettings(draftKey: string): Settings {
         : splitNegativePrompt(saved.negativePrompt);
       return { ...DEFAULT_SETTINGS,
         prompt: saved.prompt.slice(0, 12000), negativePrompt: negative.negativePrompt.slice(0, 12000), defaultNegative: negative.defaultNegative,
+        negativeWeights: typeof saved.negativeWeights === 'string' ? saved.negativeWeights.slice(0, 12000) : '',
         qualityTags: saved.qualityTags !== false, useCoords: saved.positionDefaultsVersion === 1 && saved.useCoords === true,
         strength: Math.min(1, Math.max(0.01, Number.isFinite(saved.strength) ? saved.strength : DEFAULT_SETTINGS.strength)),
         noise: Math.min(1, Math.max(0, Number.isFinite(saved.noise) ? saved.noise : DEFAULT_SETTINGS.noise)),
@@ -106,6 +107,8 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   const busyText = queuePosition > 0 ? `排队中 · 第 ${queuePosition} 位` : upscaling ? '正在放大…' : '正在生成…';
   const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const [negativeInfo, setNegativeInfo] = useState(false);
+  const negativeInfoClose = useRef<HTMLButtonElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'prompts' | 'settings' | 'history' | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -178,6 +181,12 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     return () => clearTimeout(id);
   }, [notice]);
   useEffect(() => {
+    if (!negativeInfo) return;
+    const previous = document.activeElement as HTMLElement | null;
+    negativeInfoClose.current?.focus();
+    return () => previous?.focus();
+  }, [negativeInfo]);
+  useEffect(() => {
     if (!baseSource) { setBaseImage(''); setHasMask(false); return; }
     let current = true;
     setFitting(true); setHasMask(false);
@@ -188,7 +197,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
   }, [baseSource, resolution.width, resolution.height]);
   useEffect(() => {
     function escape(event: KeyboardEvent) {
-      if (event.key === 'Escape') { setFullscreen(false); setMobilePanel(null); setConfirmClear(false); }
+      if (event.key === 'Escape') { setFullscreen(false); setMobilePanel(null); setConfirmClear(false); setNegativeInfo(false); }
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); if (canGenerate) void generate(); }
     }
     window.addEventListener('keydown', escape);
@@ -333,12 +342,9 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
       <div className="prompt-editor"><textarea id="base-prompt" maxLength={12000} rows={7} placeholder={'描述你想创作的画面…\n\n例如：1girl, outdoors, cherry blossoms, soft lighting'} value={settings.prompt} onChange={e => patch({ prompt: e.target.value })} /><div className="editor-footer"><span /><span>{settings.prompt.length.toLocaleString()} 字符</span></div></div>
       {user.role === 'admin' ? <PromptModules selected={settings.promptModules ?? []} onChange={promptModules => patch({ promptModules, qualityTags: false })} /> : <label className="toggle-row quality-row"><span><Sparkles size={15} />添加质量词</span><input type="checkbox" checked={settings.qualityTags} onChange={e => patch({ qualityTags: e.target.checked })} /><i className="switch" /></label>}
       <Characters characters={settings.characters} useCoords={settings.useCoords} disabled={false} negativeDisabled={settings.effort === 'medium'} onChange={characters => patch({ characters })} onCoordsChange={useCoords => patch({ useCoords })} aspectRatio={resolution.width / resolution.height} />
-      {settings.effort === 'medium' ? <><p className="setting-hint">Medium 使用固定负面预设。如需排除内容，可在提示词中写 -3::hat::。</p><details className="default-negative-details"><summary>V5 Heavy · 固定负面</summary><p>{MEDIUM_NEGATIVE_PROMPT}</p></details></> : <>
-      <div className="prompt-label negative-label"><label htmlFor="negative-prompt">负面提示词</label></div>
-      <label className="toggle-row default-negative-row"><span>默认负面</span><input aria-label="默认负面提示词" type="checkbox" checked={settings.defaultNegative} onChange={e => patch({ defaultNegative: e.target.checked })} /><i className="switch" /></label>
-      <details className="default-negative-details"><summary>V5 Light</summary><p>{DEFAULT_NEGATIVE_PROMPT}</p></details>
-      <div className="prompt-editor negative"><textarea id="negative-prompt" maxLength={12000} rows={4} placeholder="自定义负面提示词" value={settings.negativePrompt} onChange={e => patch({ negativePrompt: e.target.value })} /><div className="editor-footer"><span>自定义</span><span>{settings.negativePrompt.length.toLocaleString()}</span></div></div>
-      </>}
+      <div className="toggle-row default-negative-row"><span className="default-negative-title">默认负面<button type="button" className="tool negative-info-button" aria-label="查看默认负面详情" aria-haspopup="dialog" title="默认负面详情" onClick={() => setNegativeInfo(true)}><Info size={15} /></button></span><label className="default-negative-switch"><input aria-label="默认负面提示词" type="checkbox" checked={settings.effort === 'medium' || settings.defaultNegative} disabled={settings.effort === 'medium'} onChange={e => patch({ defaultNegative: e.target.checked })} /><i className="switch" /></label></div>
+      <details className="character-negative global-negative"><summary>负面提示词</summary><textarea id="negative-prompt" aria-label="负面提示词" maxLength={12000} rows={3} placeholder="" value={settings.negativePrompt} disabled={settings.effort === 'medium'} onChange={e => patch({ negativePrompt: e.target.value })} />{settings.effort === 'medium' && <p className="setting-hint">Medium 使用固定负面预设，切回 High 可编辑。</p>}</details>
+      <details className="character-negative global-negative"><summary>负数权重</summary><textarea id="negative-weights" aria-label="负数权重" maxLength={12000} rows={3} placeholder="" value={settings.negativeWeights ?? ''} onChange={e => patch({ negativeWeights: e.target.value })} /><p className="setting-hint">3::hands:: 会按 -3::hands:: 提交；普通词默认 -1。多个词用逗号分隔。</p></details>
     </div>
     <div className="prompt-bottom"><button className="secondary upload-button" onClick={() => referenceFileRef.current?.click()} disabled={busy}><ImagePlus size={17} />参考 · 图生图<Plus size={15} /></button><button className="secondary upload-button" onClick={() => fileRef.current?.click()} disabled={busy}><Paintbrush size={17} />上传图片进行重绘<Plus size={15} /></button></div>
   </>;
@@ -407,6 +413,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     <nav className="mobile-nav">{isMobile && <PromptSheet open={mobilePanel === 'prompts'} hidden={mobilePanel !== null && mobilePanel !== 'prompts'} onOpen={() => setMobilePanel('prompts')} onClose={() => setMobilePanel(null)}>{promptPanel}</PromptSheet>}<button onClick={() => setMobilePanel('prompts')}><Layers size={19} />提示词</button><button onClick={() => setMobilePanel('settings')}><Settings2 size={19} />设置</button><button onClick={() => setMobilePanel('history')}><History size={19} />历史</button><button className="mobile-generate" disabled={!canGenerate} onClick={() => void generate()}>{busy ? <LoaderCircle className="spin" size={19} /> : <WandSparkles size={19} />}{busy && queuePosition > 0 ? `排队 ${queuePosition}` : '生成'}</button></nav>
     {mobilePanel && mobilePanel !== 'prompts' && <div className="mobile-backdrop" onClick={e => { if (e.target === e.currentTarget) setMobilePanel(null); }}><aside className={`mobile-drawer ${mobilePanel}-panel`}>{mobilePanel === 'settings' ? settingsPanel : historyPanel}</aside></div>}
     {notice && <div className={`toast ${notice.error ? 'error' : ''}`} role={notice.error ? 'alert' : 'status'}>{notice.error ? <Info size={17} /> : <Check size={17} />}<span>{notice.text}</span><button className="tool" aria-label="关闭提示" onClick={() => setNotice(null)}><X size={15} /></button></div>}
+    {negativeInfo && <div className="modal-backdrop negative-info-backdrop" onClick={e => { if (e.target === e.currentTarget) setNegativeInfo(false); }}><section className="default-negative-modal" role="dialog" aria-modal="true" aria-label="默认负面详情" onKeyDown={e => { if (e.key === 'Tab') { e.preventDefault(); negativeInfoClose.current?.focus(); } }}><div className="modal-header"><span>默认负面详情 · {settings.effort === 'medium' ? 'V5 Heavy' : 'V5 Light'}</span><button ref={negativeInfoClose} className="tool" aria-label="关闭默认负面详情" onClick={() => setNegativeInfo(false)}><X size={18} /></button></div><p>{settings.effort === 'medium' ? 'Medium 固定启用此预设。' : '开启默认负面后，此预设会与自定义负面合并。'}</p><pre>{settings.effort === 'medium' ? MEDIUM_NEGATIVE_PROMPT : DEFAULT_NEGATIVE_PROMPT}</pre><p>未标注数值的词权重为 1。{settings.effort !== 'medium' && '0::ai-generated:: 的权重为 0。'}这里是负面提示词预设；「负数权重」区的词会另行加入正面提示词。</p></section></div>}
     {fullscreen && selectedUrl && <div className="fullscreen-view" role="dialog" aria-modal="true" aria-label="图片全屏预览" onClick={() => setFullscreen(false)}><button className="tool" aria-label="关闭全屏"><X size={24} /></button><ImageViewport src={selectedUrl} alt="生成结果全屏预览" fullscreen /></div>}
     {confirmClear && <div className="modal-backdrop"><section className="confirm-modal" role="dialog" aria-modal="true" aria-label="确认清空历史"><Trash2 size={25} /><h2>清空本地历史？</h2><p>将删除当前浏览器中的 {entries.length} 张图片。<br />请先下载需要保留的创作。</p><div className="modal-footer"><button className="secondary" onClick={() => setConfirmClear(false)}>取消</button><button className="danger-button" onClick={async () => { try { await clearHistory(storageOwner); setEntries([]); setSelectedId(''); setConfirmClear(false); } catch { setNotice({ text: '清空历史失败。', error: true }); } }}>清空历史</button></div></section></div>}
   </div>;

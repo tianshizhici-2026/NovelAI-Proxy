@@ -128,6 +128,7 @@ export function normalizeMetadata(raw: ObjectData, width: number, height: number
   const settings: Partial<Settings> = {
     effort: data.effort === 'medium' || /nai-diffusion-5-full-medium|NovelAI Diffusion V5 (?:93F4BD30|70AB5786)/i.test(`${data.model ?? ''} ${raw.Source ?? ''}`) ? 'medium' : 'high',
     prompt: limited(prompt, 12000), ...splitNegativePrompt(limited(text(negativeCaption.base_caption) ?? text(data.uc) ?? text(data.negative_prompt) ?? '', 12000)),
+    negativeWeights: limited(text(data.novelai_proxy_negative_weights) ?? '', 12000),
     characters, useCoords: positive.use_coords === true || data.use_coords === true,
     // Exported prompts usually already contain the quality suffix.
     qualityTags: typeof data.qualityToggle === 'boolean' ? data.qualityToggle : typeof data.quality_tags === 'boolean' ? data.quality_tags : false,

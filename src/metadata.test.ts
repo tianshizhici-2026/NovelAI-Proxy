@@ -23,6 +23,14 @@ function concat(...parts: Uint8Array[]) {
   return data;
 }
 const comment = { prompt: '2girls, 雨上がり', uc: 'blurry', steps: 28, scale: 6.5, width: 1024, height: 1024 };
+test('restores separate negative-weight input and clears it when importing older metadata', () => {
+  const result = normalizeMetadata({ Comment: { ...comment,
+    prompt: 'forest, -3::hands::', novelai_proxy_negative_weights: '3::hands::',
+    v4_prompt_original: { caption: { base_caption: 'forest' } },
+  } }, 1024, 1024).settings;
+  assert.equal(result.prompt, 'forest'); assert.equal(result.negativeWeights, '3::hands::');
+  assert.equal(normalizeMetadata({ Comment: comment }, 1024, 1024).settings.negativeWeights, '');
+});
 test('restores Medium from exported effort, model names and official hashes; old images remain High', () => {
   for (const extra of [{ effort: 'medium' }, { model: 'nai-diffusion-5-full-medium' }, { model: 'nai-diffusion-5-full-medium-inpainting' }]) {
     const result = normalizeMetadata({ Comment: { ...comment, ...extra, steps: 14, seed: 123 } }, 1024, 1024);
