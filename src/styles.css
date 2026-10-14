@@ -145,3 +145,5 @@
 .module-transfer-controls{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:10px 0}.module-transfer-controls>span{margin-right:auto;font-size:calc(10px * var(--font-scale));color:var(--muted)}.module-transfer-controls .secondary{min-height:28px;padding:5px 8px;gap:5px;font-size:calc(10px * var(--font-scale))}
 
 .prompt-field .prompt-label{min-height:24px}
+
+.module-paste-box{margin:10px 0}.module-paste-box textarea{width:100%;min-height:90px;border:1px solid var(--border);border-radius:5px;padding:10px;background:var(--field);font-size:calc(11px * var(--font-scale))}.module-paste-box>div{display:flex;gap:10px;align-items:center;margin-top:6px}.module-paste-box .secondary{font-size:calc(10px * var(--font-scale));padding:6px 10px}

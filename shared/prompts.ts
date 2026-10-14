@@ -109,6 +109,24 @@ function tagKey(prompt: string) {
     .replace(/_/g, ' ').replace(/\s+/g, ' ').replace(/^artist:\s*/i, 'artist:').replace(/^year\s*(\d{4})$/i, 'year $1').toLowerCase();
 }
 function sameWeight(a: number, b: number) { return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b)); }
+export function extractArtistSelection(prompt: string, library: PromptModule[]) {
+  const artists = library.filter(item => item.category === 'artist');
+  const first = extractPromptModules(prompt, artists);
+  const unknown = promptTokens(first.prompt);
+  if (unknown.length > 100 || unknown.some(token => !Number.isFinite(token.weight))) throw new Error('画师串最多 100 项，权重必须为有限数字。');
+  const ids = new Set(artists.map(item => item.id));
+  const fallback = unknown.map((token, index): PromptModule => {
+    let id = `clipboard-artist-${index}`;
+    while (ids.has(id)) id += '-';
+    ids.add(id);
+    const name = artistName(token.text) ?? unquoteTag(token.text);
+    return { id, category: 'artist', name, prompt: `artist:${JSON.stringify(name)}`, url: '' };
+  });
+  // Match again against the original text to retain the order of known and new artists.
+  const result = extractPromptModules(prompt, [...artists, ...fallback]);
+  if (result.prompt.trim() || !result.modules.length) throw new Error('请粘贴有效的画师串，最多 100 项。');
+  return result.modules;
+}
 export function extractPromptModules(prompt: string, library: PromptModule[], previous: SelectedPrompt[] = []) {
   const templates = library.map(item => ({ item, tokens: promptTokens(item.prompt) })).filter(template => template.tokens.length);
   const byFirst = new Map<string, typeof templates>();

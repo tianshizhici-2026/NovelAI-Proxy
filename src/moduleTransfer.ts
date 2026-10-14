@@ -1,8 +1,19 @@
-import { extractPromptModules, roundedPromptWeight, type PromptCategory, type PromptModule, type SelectedPrompt } from '../shared/prompts';
+import { composedPrompt, extractArtistSelection, extractPromptModules, roundedPromptWeight, type PromptCategory, type PromptModule, type SelectedPrompt } from '../shared/prompts';
 import { newId } from './id';
 
 export function exportModuleSelection(category: PromptCategory, selected: SelectedPrompt[]) {
   return JSON.stringify({ version: 1, category, modules: selected.filter(item => item.category === category).map(({ prompt, weight }) => ({ prompt, weight })) }, null, 2);
+}
+export function exportArtistClipboard(selected: SelectedPrompt[]) {
+  return composedPrompt('', selected.filter(item => item.category === 'artist'));
+}
+export function importArtistClipboard(text: string, library: PromptModule[]) {
+  const source = text.replace(/^\uFEFF/, '').trim();
+  if (!source) throw new Error('剪贴板中没有画师串，请复制后再导入。');
+  if (source.length > 2_000_000) throw new Error('画师串最大 2 MB。');
+  if (/^\{/.test(source) && /"(?:version|category|modules)"\s*:/.test(source)) return importModuleSelection(source, 'artist', library);
+  const existing = new Set(library.filter(item => item.category === 'artist').map(item => item.id));
+  return extractArtistSelection(source, library).map(item => existing.has(item.id) ? item : { ...item, id: newId() });
 }
 
 export function importModuleSelection(text: string, category: PromptCategory, library: PromptModule[]): SelectedPrompt[] {

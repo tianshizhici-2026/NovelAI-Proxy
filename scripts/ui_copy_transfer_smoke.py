@@ -56,13 +56,14 @@ with sync_playwright() as p:
     page.locator('.module-library > summary').filter(has_text='添加画师串').click()
     page.get_by_role('button',name='Docy',exact=True).click();page.get_by_role('button',name='Example',exact=True).click()
     page.get_by_role('button',name='artist:docy520 权重加 0.1',exact=True).click()
-    with page.expect_download() as download:
-        page.get_by_role('button',name='导出画师串组合',exact=True).click()
-    artist=json.loads(Path(download.value.path()).read_text())
-    assert artist['category']=='artist' and artist['modules']==[{'prompt':'artist:docy520','weight':.9},{'prompt':'artist:example','weight':.8}]
+    page.get_by_role('button',name='导出画师串组合',exact=True).click()
+    expect(page.get_by_role('status').filter(has_text='画师串已复制到剪贴板')).to_be_visible()
+    artist=page.evaluate('navigator.clipboard.readText()')
+    assert artist=='0.9::artist:"docy520"::, 0.8::artist:example::'
+    assert page.get_by_label('导入画师串组合文件',exact=True).count()==0
     page.get_by_role('button',name='移除 artist:docy520',exact=True).click();page.get_by_role('button',name='移除 artist:example',exact=True).click()
     expect(page.get_by_role('button',name='导出画师串组合',exact=True)).to_be_disabled()
-    page.get_by_label('导入画师串组合文件',exact=True).set_input_files({'name':'artist.json','mimeType':'application/json','buffer':json.dumps(artist).encode()})
+    page.get_by_role('button',name='导入画师串组合',exact=True).click()
     expect(page.get_by_label('artist:docy520 权重',exact=True)).to_have_text('0.9')
     expect(page.get_by_label('artist:example 权重',exact=True)).to_have_text('0.8')
     quality=page.locator('.prompt-module').filter(has=page.locator('summary').filter(has_text='质量风格'))
@@ -77,7 +78,8 @@ with sync_playwright() as p:
     page.get_by_label('导入质量风格组合文件',exact=True).set_input_files({'name':'quality.json','mimeType':'application/json','buffer':json.dumps(styles).encode()})
     expect(page.get_by_label('artist collaboration 权重',exact=True)).to_have_text('-5.0')
     expect(page.get_by_label('artist:docy520 权重',exact=True)).to_have_text('0.9')
-    page.get_by_label('导入画师串组合文件',exact=True).set_input_files({'name':'wrong.json','mimeType':'application/json','buffer':json.dumps(styles).encode()})
+    page.evaluate('(text)=>navigator.clipboard.writeText(text)',json.dumps(styles))
+    page.get_by_role('button',name='导入画师串组合',exact=True).click()
     expect(page.get_by_role('alert')).to_contain_text('质量风格')
     expect(page.get_by_label('artist:docy520 权重',exact=True)).to_have_text('0.9')
     for width,height in [(320,568),(390,844)]:
@@ -86,6 +88,18 @@ with sync_playwright() as p:
         expect(page.get_by_role('button',name='导入画师串组合',exact=True)).to_be_visible()
         assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
         page.get_by_role('button',name='关闭提示词面板',exact=True).click()
+    ctx.close()
+    # HTTP cannot use readText: a real user paste event imports automatically.
+    ctx,page=prepare(browser,'http://192.0.2.1')
+    writer=ctx.new_page();writer.goto('http://127.0.0.1:6006')
+    writer.evaluate('(text)=>navigator.clipboard.writeText(text)',artist)
+    page.bring_to_front()
+    page.get_by_role('button',name='导入画师串组合',exact=True).click()
+    expect(page.get_by_label('粘贴画师串',exact=True)).to_be_visible()
+    page.get_by_label('粘贴画师串',exact=True).focus();page.keyboard.press('Control+V')
+    expect(page.get_by_label('artist:docy520 权重',exact=True)).to_have_text('0.9')
+    expect(page.get_by_label('artist:example 权重',exact=True)).to_have_text('0.8')
+    expect(page.get_by_label('粘贴画师串',exact=True)).not_to_be_visible()
     ctx.close();browser.close()
     assert not errors,errors
-    print('Copy and transfer passed: actual native/HTTP clipboard, frame copy and result copy, separate category files, order/weights/signs, template matching, invalid-file preservation, mobile.')
+    print('Copy and transfer passed: actual native/HTTP clipboard, frame copy and result copy, artist clipboard read/export/paste, quality files, order/weights/signs, template matching, invalid-file preservation, mobile.')
