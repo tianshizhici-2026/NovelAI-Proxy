@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, RESOLUTIONS, type GenerationMode, type GenerationJobS
 import { DEFAULT_NEGATIVE_PROMPT, splitNegativePrompt } from '../shared/negative';
 import Characters from './Characters';
 import PromptField from './PromptField';
+import { copyText } from './clipboard';
 import MaskCanvas, { type MaskHandle } from './MaskCanvas';
 import PromptSheet from './PromptSheet';
 import ImageViewport from './ImageViewport';
@@ -143,6 +144,16 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
       noise: entry.mode === 'img2img' ? entry.settings.noise : current.noise,
     })));
     if (entry.mode === 'inpaint') setInpaintStrength(Math.max(0.01, entry.settings.strength));
+  }
+  async function copyPositivePrompt(entry?: HistoryEntry) {
+    const text = entry ? entry.settings.prompt : settings.prompt;
+    let copyError: unknown;
+    try { await copyText(text); } catch (error) { copyError = error; }
+    try {
+      if (entry) await restoreEntrySettings(entry);
+      setNotice(copyError ? { text: copyError instanceof Error ? copyError.message : '复制失败，请手动复制提示词。', error: true }
+        : { text: entry ? '已恢复图片设置，并复制正向提示词。' : '正向提示词已复制。', error: false });
+    } catch (error) { setNotice({ text: error instanceof Error ? error.message : '提示词读取失败。', error: true }); }
   }
   useEffect(() => {
     if (mode !== 'generate' && settings.strength < 0.01) patch({ strength: 0.01 });
@@ -340,7 +351,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
     <div className="panel-heading"><span><Layers size={16} />创作提示词</span><button className="tool mobile-only" onClick={() => setMobilePanel(null)} aria-label="关闭提示词面板"><X size={18} /></button></div>
     <div className="prompt-scroll">
       <section className="prompt-fields" aria-label="提示词输入">
-        <PromptField id="base-prompt" label="提示词" subtitle="Prompt" value={settings.prompt} onChange={prompt => patch({ prompt })} placeholder={'描述你想创作的画面…\n\n例如：1girl, outdoors, cherry blossoms, soft lighting'} />
+        <PromptField id="base-prompt" label="提示词" subtitle="Prompt" value={settings.prompt} onChange={prompt => patch({ prompt })} onCopy={() => void copyPositivePrompt()} placeholder={'描述你想创作的画面…\n\n例如：1girl, outdoors, cherry blossoms, soft lighting'} />
         <PromptField id="negative-prompt" label="负面提示词" subtitle="Negative" collapsible value={settings.negativePrompt} disabled={settings.effort === 'medium'} onChange={negativePrompt => patch({ negativePrompt })} help={settings.effort === 'medium' && <p className="setting-hint">Medium 使用固定负面预设，切回 High 可编辑。</p>} />
         <PromptField id="negative-weights" label="负数权重" subtitle="Negative weight" collapsible value={settings.negativeWeights ?? ''} onChange={negativeWeights => patch({ negativeWeights })} help={<p className="setting-hint">3::hands:: 会按 -3::hands:: 提交；普通词默认 -1。多个词用逗号分隔。</p>} />
       </section>
@@ -408,7 +419,7 @@ export default function App({ user, onAdmin, onLogout }: { user: AccountView; on
           {selected && (mode === 'generate' || !showEditor) && <div className="result-container"><ImageViewport src={selectedUrl!} alt="当前生成结果"><button className="image-expand tool" title="全屏预览" aria-label="全屏预览" onClick={() => setFullscreen(true)}><Expand size={17} /></button></ImageViewport><div className="result-meta"><span><i className="dot pink" />{modeName(selected.mode)}<i className="meta-separator" />{selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width} × {selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height}</span><span>{selected.settings.effort === 'medium' ? 'Medium' : 'High'} · {selected.settings.steps} steps · CFG {selected.settings.guidance}</span></div></div>}
           {(busy || fitting) && <div className="working-overlay"><div><LoaderCircle className="spin" size={28} /><strong>{fitting ? '正在适配底图' : queuePosition > 0 ? busyText : upscaling ? '正在原生放大图像' : mode === 'inpaint' ? '正在重绘选中区域' : '正在生成你的图像'}</strong></div></div>}
         </div>
-        {selected && (mode === 'generate' || !showEditor) && <div className="result-controls"><div className="result-actions">{user.role === 'admin' && upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height) !== null && <button className="secondary" disabled={busy || !status.paidReady} onClick={() => void upscale(selected)}><Expand size={15} />原生放大 2× · {upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height)} Anlas</button>}<button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected)}><Paintbrush size={15} />继续重绘</button><button className="secondary" disabled={busy} onClick={() => void restoreEntrySettings(selected).then(() => setNotice({ text: '已恢复这张图片的提示词和生成设置。', error: false })).catch(error => setNotice({ text: error instanceof Error ? error.message : '提示词读取失败。', error: true }))}><Copy size={15} />复制提示词</button><button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected, 'img2img')}><ImagePlus size={15} />用作参考图</button></div>{mode === 'inpaint' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>返回编辑器<ArrowRight size={13} /></button>}{mode === 'img2img' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>查看参考图<ArrowRight size={13} /></button>}</div>}
+        {selected && (mode === 'generate' || !showEditor) && <div className="result-controls"><div className="result-actions">{user.role === 'admin' && upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height) !== null && <button className="secondary" disabled={busy || !status.paidReady} onClick={() => void upscale(selected)}><Expand size={15} />原生放大 2× · {upscaleAnlas(selected.imageWidth ?? RESOLUTIONS[selected.settings.resolution].width, selected.imageHeight ?? RESOLUTIONS[selected.settings.resolution].height)} Anlas</button>}<button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected)}><Paintbrush size={15} />继续重绘</button><button className="secondary" disabled={busy} onClick={() => void copyPositivePrompt(selected)}><Copy size={15} />复制提示词</button><button className="secondary" disabled={busy} onClick={() => void useForInpaint(selected, 'img2img')}><ImagePlus size={15} />用作参考图</button></div>{mode === 'inpaint' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>返回编辑器<ArrowRight size={13} /></button>}{mode === 'img2img' && baseImage && <button className="text-button return-editor" onClick={() => setShowEditor(true)}>查看参考图<ArrowRight size={13} /></button>}</div>}
       </main>
       {!isMobile && <><aside className="settings-panel desktop-panel">{settingsPanel}</aside><aside className="history-panel desktop-panel">{historyPanel}</aside></>}
     </div>
